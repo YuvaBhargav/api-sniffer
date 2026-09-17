@@ -139,8 +139,9 @@ DASHBOARD_HTML = """
     </div>
 
     <div class="layout-grid">
+        <!-- Sidebar: Full Query / Command Generator -->
         <div class="panel">
-            <div class="panel-title">⚡ cURL Generator</div>
+            <div class="panel-title">⚡ Query & Command Generator</div>
             
             <label>Target Host</label>
             <input type="text" id="gen-host" value="" oninput="updateCurl()">
@@ -156,7 +157,6 @@ DASHBOARD_HTML = """
                         <option>PATCH</option>
                         <option>OPTIONS</option>
                         <option>HEAD</option>
-                        <option>TRACE</option>
                     </select>
                 </div>
                 <div style="flex: 2;">
@@ -165,16 +165,24 @@ DASHBOARD_HTML = """
                 </div>
             </div>
 
-            <label>Test Mode</label>
+            <label>Data Mode (Identifier Type)</label>
             <select id="gen-mode" onchange="updateCurl()">
-                <option value="payload">1. Data in Payload (Body)</option>
-                <option value="file">2. Data as a File</option>
-                <option value="query">3. Data as Query</option>
+                <option value="payload">📦 1. JSON Payload</option>
+                <option value="text">📝 2. Raw Text Body</option>
+                <option value="file">📁 3. File Upload</option>
+                <option value="query">🔗 4. Query Parameters</option>
+                <option value="form">📄 5. Form Data</option>
+                <option value="empty">⚪ 6. Empty Request</option>
             </select>
 
             <div id="div-payload">
-                <label>Payload (JSON / Text)</label>
+                <label>JSON Payload</label>
                 <textarea id="gen-payload" rows="3" oninput="updateCurl()">{"event": "test", "status": "activepan", "email": "gmail"}</textarea>
+            </div>
+
+            <div id="div-text" style="display: none;">
+                <label>Raw Text Body</label>
+                <textarea id="gen-text" rows="3" oninput="updateCurl()">sample text body data</textarea>
             </div>
 
             <div id="div-file" style="display: none;">
@@ -187,10 +195,29 @@ DASHBOARD_HTML = """
                 <input type="text" id="gen-query" value="event=test&status=activepan&email=gmail" oninput="updateCurl()">
             </div>
 
-            <label style="margin-top: 12px;">cURL Command</label>
+            <div id="div-form" style="display: none;">
+                <label>Form Data String</label>
+                <input type="text" id="gen-form" value="field1=val1&field2=val2" oninput="updateCurl()">
+            </div>
+
+            <label>Code Generator Format</label>
+            <select id="gen-lang" onchange="updateCurl()">
+                <option value="curl">💻 cURL Command</option>
+                <option value="python">🐍 Python (requests)</option>
+                <option value="js">🟨 JavaScript (fetch)</option>
+                <option value="powershell">🔷 PowerShell (Invoke-RestMethod)</option>
+            </select>
+
+            <label style="margin-top: 10px;">Generated Snippet</label>
             <pre id="curl-out">curl ...</pre>
+
+            <div style="display: flex; gap: 8px; margin-top: 8px;">
+                <button class="btn" style="flex: 1; background: #1f6feb; color: #fff; border: none; justify-content: center;" id="btn-send" onclick="sendTestRequest()">🚀 Send Test Request</button>
+                <button class="btn" style="flex: 1; justify-content: center;" id="btn-copy" onclick="copyGeneratedCode()">📋 Copy Code</button>
+            </div>
         </div>
 
+        <!-- Main Feed -->
         <div class="panel">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                 <div class="panel-title" style="margin-bottom: 0;">📋 Captured Feed (IST)</div>
@@ -210,30 +237,136 @@ DASHBOARD_HTML = """
             const method = document.getElementById('gen-method').value;
             const subpath = document.getElementById('gen-subpath').value;
             const mode = document.getElementById('gen-mode').value;
+            const lang = document.getElementById('gen-lang').value;
             
             document.getElementById('div-payload').style.display = mode === 'payload' ? 'block' : 'none';
+            document.getElementById('div-text').style.display = mode === 'text' ? 'block' : 'none';
             document.getElementById('div-file').style.display = mode === 'file' ? 'block' : 'none';
             document.getElementById('div-query').style.display = mode === 'query' ? 'block' : 'none';
+            document.getElementById('div-form').style.display = mode === 'form' ? 'block' : 'none';
 
             let url = host + subpath;
-            let cmd = `curl -X ${method} "${url}"`;
+            let code = '';
 
-            if (method === 'HEAD') {
-                cmd = `curl -I "${url}"`;
-            } else if (mode === 'payload') {
-                const payload = document.getElementById('gen-payload').value;
-                cmd += ` \\\n  -H "Content-Type: application/json" \\\n  -d '${payload}'`;
-            } else if (mode === 'file') {
-                let filepath = document.getElementById('gen-file').value;
-                if (!filepath.startsWith('@')) filepath = '@' + filepath;
-                cmd += ` \\\n  -F "file=${filepath}"`;
-            } else if (mode === 'query') {
-                const q = document.getElementById('gen-query').value;
-                url += `?${q}`;
-                cmd = method === 'HEAD' ? `curl -I "${url}"` : `curl -X ${method} "${url}"`;
+            if (lang === 'curl') {
+                let cmd = `curl -X ${method} "${url}"`;
+                if (method === 'HEAD') {
+                    cmd = `curl -I "${url}"`;
+                } else if (mode === 'payload') {
+                    const payload = document.getElementById('gen-payload').value;
+                    cmd += ` \\\n  -H "Content-Type: application/json" \\\n  -d '${payload}'`;
+                } else if (mode === 'text') {
+                    const txt = document.getElementById('gen-text').value;
+                    cmd += ` \\\n  -H "Content-Type: text/plain" \\\n  -d '${txt}'`;
+                } else if (mode === 'file') {
+                    let filepath = document.getElementById('gen-file').value;
+                    if (!filepath.startsWith('@')) filepath = '@' + filepath;
+                    cmd += ` \\\n  -F "file=${filepath}"`;
+                } else if (mode === 'query') {
+                    const q = document.getElementById('gen-query').value;
+                    url += `?${q}`;
+                    cmd = method === 'HEAD' ? `curl -I "${url}"` : `curl -X ${method} "${url}"`;
+                } else if (mode === 'form') {
+                    const form = document.getElementById('gen-form').value;
+                    cmd += ` \\\n  -H "Content-Type: application/x-www-form-urlencoded" \\\n  -d "${form}"`;
+                }
+                code = cmd;
+            } else if (lang === 'python') {
+                let pyUrl = url;
+                if (mode === 'query') pyUrl += '?' + document.getElementById('gen-query').value;
+                let py = `import requests\n\nurl = "${pyUrl}"\n`;
+                if (mode === 'payload') {
+                    py += `payload = ${document.getElementById('gen-payload').value}\nresponse = requests.${method.toLowerCase()}(url, json=payload)`;
+                } else if (mode === 'text') {
+                    py += `data = """${document.getElementById('gen-text').value}"""\nheaders = {"Content-Type": "text/plain"}\nresponse = requests.${method.toLowerCase()}(url, data=data, headers=headers)`;
+                } else if (mode === 'file') {
+                    let filepath = document.getElementById('gen-file').value.replace(/^@/, '');
+                    py += `files = {'file': open('${filepath}', 'rb')}\nresponse = requests.${method.toLowerCase()}(url, files=files)`;
+                } else if (mode === 'form') {
+                    py += `data = "${document.getElementById('gen-form').value}"\nheaders = {"Content-Type": "application/x-www-form-urlencoded"}\nresponse = requests.${method.toLowerCase()}(url, data=data, headers=headers)`;
+                } else {
+                    py += `response = requests.${method.toLowerCase()}(url)`;
+                }
+                py += `\nprint(response.status_code, response.text)`;
+                code = py;
+            } else if (lang === 'js') {
+                let jsUrl = url;
+                if (mode === 'query') jsUrl += '?' + document.getElementById('gen-query').value;
+                let js = `fetch("${jsUrl}", {\n  method: "${method}"`;
+                if (mode === 'payload') {
+                    js += `,\n  headers: { "Content-Type": "application/json" },\n  body: JSON.stringify(${document.getElementById('gen-payload').value})`;
+                } else if (mode === 'text') {
+                    js += `,\n  headers: { "Content-Type": "text/plain" },\n  body: ${JSON.stringify(document.getElementById('gen-text').value)}`;
+                } else if (mode === 'form') {
+                    js += `,\n  headers: { "Content-Type": "application/x-www-form-urlencoded" },\n  body: "${document.getElementById('gen-form').value}"`;
+                } else if (mode === 'file') {
+                    js += `,\n  body: formData // append file to FormData object`;
+                }
+                js += `\n})\n.then(res => res.text())\n.then(console.log);`;
+                code = js;
+            } else if (lang === 'powershell') {
+                let psUrl = url;
+                if (mode === 'query') psUrl += '?' + document.getElementById('gen-query').value;
+                let ps = `Invoke-RestMethod -Uri "${psUrl}" -Method ${method}`;
+                if (mode === 'payload') {
+                    ps += ` -ContentType 'application/json' -Body '${document.getElementById('gen-payload').value}'`;
+                } else if (mode === 'text') {
+                    ps += ` -ContentType 'text/plain' -Body '${document.getElementById('gen-text').value}'`;
+                } else if (mode === 'form') {
+                    ps += ` -ContentType 'application/x-www-form-urlencoded' -Body '${document.getElementById('gen-form').value}'`;
+                }
+                code = ps;
             }
 
-            document.getElementById('curl-out').innerText = cmd;
+            document.getElementById('curl-out').innerText = code;
+        }
+
+        async function sendTestRequest() {
+            const host = document.getElementById('gen-host').value.replace(/\/$/, '');
+            const method = document.getElementById('gen-method').value;
+            const subpath = document.getElementById('gen-subpath').value;
+            const mode = document.getElementById('gen-mode').value;
+
+            let url = host + subpath;
+            let options = { method: method };
+
+            if (mode === 'payload') {
+                options.headers = { 'Content-Type': 'application/json' };
+                options.body = document.getElementById('gen-payload').value;
+            } else if (mode === 'text') {
+                options.headers = { 'Content-Type': 'text/plain' };
+                options.body = document.getElementById('gen-text').value;
+            } else if (mode === 'query') {
+                const q = document.getElementById('gen-query').value;
+                url += (url.includes('?') ? '&' : '?') + q;
+            } else if (mode === 'form') {
+                options.headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+                options.body = document.getElementById('gen-form').value;
+            }
+
+            const btn = document.getElementById('btn-send');
+            btn.innerText = '⏳ Sending...';
+            btn.disabled = true;
+
+            try {
+                await fetch(url, options);
+                btn.innerText = '✅ Sent!';
+                setTimeout(() => { btn.innerText = '🚀 Send Test Request'; btn.disabled = false; }, 1200);
+                fetchLogs();
+            } catch (e) {
+                alert('Error sending request: ' + e.message);
+                btn.innerText = '🚀 Send Test Request';
+                btn.disabled = false;
+            }
+        }
+
+        function copyGeneratedCode() {
+            const text = document.getElementById('curl-out').innerText;
+            navigator.clipboard.writeText(text);
+            const btn = document.getElementById('btn-copy');
+            const orig = btn.innerText;
+            btn.innerText = '✅ Copied!';
+            setTimeout(() => { btn.innerText = orig; }, 1200);
         }
 
         async function fetchLogs() {
@@ -283,6 +416,18 @@ DASHBOARD_HTML = """
                 return `<span class="data-badge badge-query-type">🔗 Query Params</span>`;
             }
             return `<span class="data-badge badge-empty-type">⚪ Empty</span>`;
+        }
+
+        function buildItemCurl(item) {
+            let cmd = `curl -X ${item.method} "${item.url}"`;
+            if (item.method === 'HEAD') {
+                cmd = `curl -I "${item.url}"`;
+            } else if (item.body) {
+                cmd += ` \\\n  -H "Content-Type: ${item.content_type || 'application/json'}" \\\n  -d '${item.body.replace(/'/g, "'\\\\''")}'`;
+            } else if (item.files && item.files.length) {
+                cmd += ` \\\n  -F "file=@${item.files[0].filename}"`;
+            }
+            return cmd;
         }
 
         function renderFiles(files) {
@@ -341,6 +486,9 @@ DASHBOARD_HTML = """
                         <pre>${escapeHtml(item.body || (item.form_data ? JSON.stringify(item.form_data, null, 2) : '<empty>'))}</pre>
 
                         ${renderFiles(item.files)}
+
+                        <div class="section-sub">cURL Replay Command</div>
+                        <pre>${escapeHtml(buildItemCurl(item))}</pre>
                     </div>
                 </div>
             `).join('');
