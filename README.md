@@ -11,17 +11,18 @@ A lightweight, high-performance, self-hosted API request sniffer, real-time insp
   - **Query Parameters**: Full URL query strings and multi-value query array parsing (`?tag=a&tag=b`).
   - **Headers & Cookies**: Complete, un-redacted headers and cookie dictionary view.
   - **Payload & Body**: Automatic formatting for JSON, URL-encoded form data, raw text, and binary hex fallback.
-  - **Zero-Disk Multipart File Uploads**: Uploaded files are converted into **Base64 Data URIs** and saved directly in SQLite (`0 bytes` written to server disk storage). Features MD5 checksums, inline image previews, and 1-click download buttons.
+  - **Temporary External Object Storage (`tmpfiles.org`)**: Uploaded files are automatically uploaded to `tmpfiles.org` temporary object storage (`0 bytes` saved on PythonAnywhere server disk). Features MD5 checksums, `tmpfiles.org` evidence URLs, inline image previews, 60-minute expiration tracking, and direct download links.
   - **IST Timezone Standardization**: All request timestamps are logged natively in Indian Standard Time (`UTC+5:30`).
-- **SQLite Persistence Engine**: Thread-safe SQLite engine (`sniffer_logs.db`) ensuring logs persist reliably across server reloads and container restarts.
+- **SQLite Persistence Engine**: Thread-safe SQLite engine (`sniffer_logs.db`) ensuring request logs persist reliably across server reloads and container restarts.
 - **Multi-Language Query & Command Generator**:
-  - Dynamically builds ready-to-run queries across **6 Data Modes**:
+  - Dynamically builds ready-to-run queries across **7 Data Modes**:
     1. 📦 **JSON Payload** (`application/json`)
     2. 📝 **Raw Text Body** (`text/plain`)
-    3. 📁 **File Upload** (`multipart/form-data`)
-    4. 🔗 **Query Parameters** (`?key=value`)
-    5. 📄 **Form Data** (`application/x-www-form-urlencoded`)
-    6. ⚪ **Empty Request / Headers Only**
+    3. 📁 **File Upload** (`-F "file=@photo.png"`)
+    4. 📄 **File Content Body** (`-d "@file.txt"`)
+    5. 🔗 **Query Parameters** (`?key=value`)
+    6. 📄 **Form Data** (`application/x-www-form-urlencoded`)
+    7. ⚪ **Empty Request / Headers Only**
   - Exports code snippets in 4 languages:
     - 💻 **cURL Command**
     - 🐍 **Python (`requests`)**
@@ -29,7 +30,7 @@ A lightweight, high-performance, self-hosted API request sniffer, real-time insp
     - 🔷 **PowerShell (`Invoke-RestMethod`)**
   - **🚀 Send Test Request Action**: Execute generated HTTP requests directly from the dashboard UI using browser `fetch()` and see them captured live in the feed.
   - **📋 Copy Code Action**: 1-click copy generated code snippets to clipboard.
-- **Minimalist Zero-Lag UI**: Dark-themed Single Page Application (SPA) with metric distribution counters, filter search bar, live polling, and CSV/JSON data export.
+- **Minimalist Zero-Lag UI**: Dark-themed Single Page Application (SPA) with metric distribution counters, filter search bar, live polling, multi-device mobile compatibility, and CSV/JSON data export.
 - **Ready for Cloud Deployment**: Tested for **PythonAnywhere WSGI**, Docker, Render, Railway, and Heroku.
 
 ---
@@ -49,23 +50,22 @@ A lightweight, high-performance, self-hosted API request sniffer, real-time insp
 |                   Wildcard Listener / Un-redacted Parser (IST)                       |
 +-----------------+-----------------------------------------------+--------------------+
                   |                                               |
-                  v Store Logs & Base64 Files                     v Generate Code
+                  v Store Logs & tmpfiles.org URLs                v Generate Code
 +------------------------------------+        +----------------------------------------+
 |      SQLite Database (db.py)       |        |        Query Generator Engine          |
-|  Thread-Safe Connection Pool & DB  |        |    6 Data Modes: cURL/Py/JS/PS Snippets|
+|  Thread-Safe Connection Pool & DB  |        |    7 Data Modes: cURL/Py/JS/PS Snippets|
 +------------------------------------+        +----------------------------------------+
 ```
 
-### Request Processing & Zero-Disk Data Flow
+### Request Processing & Temporary File Flow
 
 ```
-Client / Dashboard           Flask Listener (app.py)        Base64 Parser            SQLite Pool (db.py)
+Client / Dashboard           Flask Listener (app.py)        tmpfiles.org API         SQLite Pool (db.py)
       |                             |                             |                            |
       |--- 1. HTTP Request -------->|                             |                            |
-      |    (GET/POST/Upload)        |--- 2. Parse Headers ------->|                            |
-      |                             |       & Base64 Files        |                            |
-      |                             |<-- 3. Return Metadata ------|                            |
-      |                             |                             |                            |
+      |    (GET/POST/Upload)        |--- 2. Upload File --------->|                            |
+      |                             |<-- 3. Evidence Page URL ----|                            |
+      |                             |       (Expires in 60m)      |                            |
       |                             |-------------------------------- 4. Insert Record ------->|
       |                             |                                   (IST Timestamp)        |
       |                             |<------------------------------- 5. Return OK ------------|
@@ -90,17 +90,17 @@ The SQLite persistence engine stores logs in table `sniffer_logs`:
 | `headers` | `TEXT` | `NOT NULL` | Serialized JSON dictionary of HTTP headers |
 | `body_type` | `TEXT` | `NOT NULL` | Data type (`payload` / `text` / `file` / `form` / `empty`) |
 | `body` | `TEXT` | `DEFAULT ''` | Raw request body or formatted JSON text |
-| `files` | `TEXT` | `DEFAULT '[]'` | Base64 Data URIs, MD5 hashes, filename metadata |
+| `files` | `TEXT` | `DEFAULT '[]'` | `tmpfiles.org` evidence page URL, download URL, MD5, metadata |
 | `client_ip` | `TEXT` | `NOT NULL` | Caller IP address |
 
 ---
 
 ## ⚡ Multi-Language Query Generator Specification
 
-The dashboard sidebar features an interactive query generator supporting 6 data modes and 4 code target environments:
+The dashboard sidebar features an interactive query generator supporting 7 data modes and 4 code target environments:
 
 ```
-Modes:           [1. JSON Payload] [2. Raw Text] [3. File Upload] [4. Query Params] [5. Form Data] [6. Empty]
+Modes:           [1. JSON Payload] [2. Raw Text] [3. File Upload] [4. File Content Body] [5. Query Params] [6. Form Data] [7. Empty]
 Environments:    [💻 cURL] [🐍 Python requests] [🟨 JavaScript fetch] [🔷 PowerShell Invoke-RestMethod]
 Actions:         [🚀 Send Test Request]  [📋 Copy Code]
 ```
@@ -165,12 +165,17 @@ curl -X PUT "http://localhost:5000/api/v1/settings" \
   -H "Content-Type: text/plain" \
   -d "sample text body data"
 
-# 4. Form Data Request
+# 4. File Content Body (-d "@file.txt") - Sends Raw File Content
+curl -X POST "http://localhost:5000/api/v1/test" \
+  -H "Content-Type: text/plain" \
+  -d "@data.txt"
+
+# 5. Form Data Request
 curl -X POST "http://localhost:5000/api/v1/form" \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d "field1=val1&field2=val2"
 
-# 5. Multipart File Upload
+# 6. Multipart File Upload (Sent to tmpfiles.org temporary object storage)
 curl -X POST "http://localhost:5000/api/v1/upload" \
   -F "file=@photo.png"
 ```
@@ -205,7 +210,7 @@ git pull origin main
 ```
 .
 ├── app.py               # Main Flask WSGI application, wildcard listener, & Dashboard SPA
-├── db.py                # SQLite database connection pool, Base64 URI file encoder, & export
+├── db.py                # SQLite database connection pool, log persistence, & CSV/JSON export
 ├── api_streamlit.py     # Streamlit entrypoint wrapper
 ├── test_sniffer.py      # Automated synthetic test runner (7/7 method test cases)
 ├── requirements.txt     # Python dependencies
