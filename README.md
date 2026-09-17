@@ -11,7 +11,8 @@ A lightweight, high-performance, self-hosted API request sniffer, real-time insp
   - **Query Parameters**: Full URL query strings and multi-value query array parsing (`?tag=a&tag=b`).
   - **Headers & Cookies**: Complete, un-redacted headers and cookie dictionary view.
   - **Payload & Body**: Automatic formatting for JSON, URL-encoded form data, raw text, and binary hex fallback.
-  - **Temporary External Object Storage (`tmpfiles.org`)**: Uploaded files are automatically uploaded to `tmpfiles.org` temporary object storage (`0 bytes` saved on PythonAnywhere server disk). Features MD5 checksums, `tmpfiles.org` evidence URLs, inline image previews, 60-minute expiration tracking, and direct download links.
+  - **Zero Transit Encoding or Encryption**: Files and request bodies are processed and transmitted in their native raw binary/text format without any Base64 encoding, transformation, or encryption in transit.
+  - **Temporary External Object Storage (`tmpfiles.org`)**: Uploaded files are uploaded directly to `tmpfiles.org` temporary object storage (`0 bytes` saved on local server disk or database). Displays the exact generated `tmpfiles.org` URL, filename, size, and MD5 checksum without image previews or Base64 data clutter.
   - **IST Timezone Standardization**: All request timestamps are logged natively in Indian Standard Time (`UTC+5:30`).
 - **SQLite Persistence Engine**: Thread-safe SQLite engine (`sniffer_logs.db`) ensuring request logs persist reliably across server reloads and container restarts.
 - **Multi-Language Query & Command Generator**:
