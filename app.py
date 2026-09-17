@@ -22,7 +22,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 API_PORT = int(os.environ.get("API_PORT", 5000))
 
-# Thread-safe global mock config
+# Global mock response config
 MOCK_CONFIG = {
     "status_code": 200,
     "response_body": '{"status": "success", "message": "Request captured successfully"}',
@@ -182,7 +182,7 @@ def start_listener_server(port: int):
 start_listener_server(API_PORT)
 
 # -----------------------------------------------------------------------------
-# 4. Helper Functions for Code Generators
+# 4. Helper Code Generators
 # -----------------------------------------------------------------------------
 def generate_curl(item: dict) -> str:
     url = item['url']
@@ -242,7 +242,7 @@ def generate_javascript(item: dict) -> str:
   .catch(error => console.error('error', error));"""
 
 # -----------------------------------------------------------------------------
-# 5. Streamlit Interactive Dashboard UI & URL Query Capture
+# 5. Streamlit App Layout & 3-Way Tester
 # -----------------------------------------------------------------------------
 st.set_page_config(
     page_title="API Request Sniffer & Inspector",
@@ -251,7 +251,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Auto-capture URL query parameters on page load if present in query string
+# Auto-capture URL query parameters if present on load
 if st.query_params:
     qp = dict(st.query_params)
     req_id = str(uuid.uuid4())
@@ -271,8 +271,8 @@ if st.query_params:
             "raw_query_string": raw_qs,
             "headers": {"User-Agent": "StreamlitCloudURL", "Accept": "*/*"},
             "cookies": {},
-            "client_ip": "Streamlit Cloud Client",
-            "user_agent": "Streamlit Cloud URL Access",
+            "client_ip": "Streamlit Client",
+            "user_agent": "Streamlit Cloud URL",
             "content_type": "",
             "content_length": 0,
             "body_type": "empty",
@@ -283,158 +283,144 @@ if st.query_params:
             "duration_ms": 0.5
         })
 
-# Custom CSS for polished aesthetics
+# Styling
 st.markdown("""
 <style>
-    .metric-card {
-        background-color: #1e222d;
-        border-radius: 8px;
-        padding: 16px;
-        border: 1px solid #2e3440;
-    }
-    .badge-get { background-color: #2e7d32; color: white; padding: 2px 8px; border-radius: 4px; font-weight: bold; }
-    .badge-post { background-color: #1565c0; color: white; padding: 2px 8px; border-radius: 4px; font-weight: bold; }
-    .badge-put { background-color: #f57c00; color: white; padding: 2px 8px; border-radius: 4px; font-weight: bold; }
-    .badge-delete { background-color: #c62828; color: white; padding: 2px 8px; border-radius: 4px; font-weight: bold; }
-    .badge-patch { background-color: #6a1b9a; color: white; padding: 2px 8px; border-radius: 4px; font-weight: bold; }
+    .metric-card { background-color: #1e222d; border-radius: 8px; padding: 16px; border: 1px solid #2e3440; }
     .stCodeBlock { font-family: monospace; }
 </style>
 """, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# Sidebar: Interactive API Query Builder & Settings
+# Sidebar: 3-Way API Tester Studio
 # -----------------------------------------------------------------------------
 with st.sidebar:
-    st.header("🛠️ API Query Builder")
-    st.caption("Construct and fire custom API requests directly into the sniffer.")
+    st.header("🧪 3-Way Request Tester")
+    st.caption("Test any HTTP method in 3 simple ways:")
 
-    qb_method = st.selectbox("HTTP Method", ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"], key="qb_method")
-    qb_path = st.text_input("Endpoint Subpath", value="/api/v1/users", key="qb_path")
-    
-    st.markdown("**Query Parameters**")
-    qb_q_key1 = st.text_input("Param 1 Key", value="event", key="qb_k1")
-    qb_q_val1 = st.text_input("Param 1 Value", value="test", key="qb_v1")
-    
-    qb_q_key2 = st.text_input("Param 2 Key", value="status", key="qb_k2")
-    qb_q_val2 = st.text_input("Param 2 Value", value="activepan", key="qb_v2")
+    # 1. Select HTTP Method & Path
+    test_method = st.selectbox("HTTP Method", ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"], key="t_method")
+    test_path = st.text_input("Endpoint Path", value="/api/v1/test", key="t_path")
 
-    qb_q_key3 = st.text_input("Param 3 Key", value="email", key="qb_k3")
-    qb_q_val3 = st.text_input("Param 3 Value", value="gmail", key="qb_v3")
+    # 2. Select 1 of 3 Test Modes
+    test_mode = st.radio(
+        "Select Data Mode:",
+        ["1. Data in Payload (Body)", "2. Data as a File", "3. Data as Query"],
+        key="t_mode"
+    )
 
-    # Build query string dictionary
-    qb_params = {}
-    if qb_q_key1: qb_params[qb_q_key1] = qb_q_val1
-    if qb_q_key2: qb_params[qb_q_key2] = qb_q_val2
-    if qb_q_key3: qb_params[qb_q_key3] = qb_q_val3
+    req_body = ""
+    req_query = ""
+    uploaded_files_data = []
 
-    raw_qb_qs = "&".join([f"{k}={v}" for k, v in qb_params.items()])
+    if "1. Data in Payload" in test_mode:
+        st.markdown("**📦 Data Payload**")
+        default_payload = '{\n  "event": "test",\n  "status": "activepan",\n  "email": "gmail"\n}'
+        req_body = st.text_area("JSON / Text Payload", value=default_payload, height=120, key="t_body")
 
-    st.markdown("**Request Headers**")
-    qb_h_key = st.text_input("Header Name", value="Authorization", key="qb_hk")
-    qb_h_val = st.text_input("Header Value", value="Bearer sample_token_123", key="qb_hv")
+    elif "2. Data as a File" in test_mode:
+        st.markdown("**📁 Data File Upload**")
+        uploaded_file = st.file_uploader("Upload File (Image, TXT, PDF, CSV, JSON)", key="t_file")
+        if uploaded_file is not None:
+            file_bytes = uploaded_file.getvalue()
+            orig_name = secure_filename(uploaded_file.name)
+            saved_name = f"{int(time.time())}_{uuid.uuid4().hex[:6]}_{orig_name}"
+            saved_path = os.path.join(UPLOAD_DIR, saved_name)
+            with open(saved_path, "wb") as f_out:
+                f_out.write(file_bytes)
+            
+            md5_str = hashlib.md5(file_bytes).hexdigest()
+            uploaded_files_data.append({
+                "field": "file",
+                "filename": orig_name,
+                "saved_filename": saved_name,
+                "saved_path": saved_path,
+                "size_bytes": len(file_bytes),
+                "md5": md5_str,
+                "content_type": uploaded_file.type or "application/octet-stream"
+            })
+            st.success(f"File loaded: {orig_name} ({len(file_bytes)} bytes)")
 
-    qb_headers = {"User-Agent": "APIQueryBuilder/1.0"}
-    if qb_h_key:
-        qb_headers[qb_h_key] = qb_h_val
+    elif "3. Data as Query" in test_mode:
+        st.markdown("**🔗 Data Query String**")
+        req_query = st.text_input("Query String", value="event=test&status=activepan&email=gmail", key="t_query")
 
-    st.markdown("**Request Body (JSON / Text)**")
-    qb_body_format = st.radio("Body Type", ["JSON", "Raw Text", "None"], key="qb_bformat", horizontal=True)
-    
-    default_json_body = '{\n  "event": "test",\n  "status": "activepan",\n  "email": "gmail"\n}'
-    qb_body = ""
-    if qb_body_format == "JSON":
-        qb_body = st.text_area("JSON Payload", value=default_json_body, height=100, key="qb_body_json")
-        qb_headers["Content-Type"] = "application/json"
-    elif qb_body_format == "Raw Text":
-        qb_body = st.text_area("Raw Text", value="sample_payload_data=123", height=80, key="qb_body_text")
-        qb_headers["Content-Type"] = "text/plain"
-
-    # Preview Generated Request cURL
-    target_full_url = f"http://127.0.0.1:{API_PORT}{qb_path}?{raw_qb_qs}" if raw_qb_qs else f"http://127.0.0.1:{API_PORT}{qb_path}"
-    
-    with st.expander("👀 View Generated cURL Command"):
-        curl_preview = [f"curl -X {qb_method} '{target_full_url}'"]
-        for hk, hv in qb_headers.items():
-            curl_preview.append(f"  -H '{hk}: {hv}'")
-        if qb_body and qb_method in ["POST", "PUT", "PATCH", "DELETE"]:
-            curl_preview.append(f"  -d '{qb_body}'")
-        st.code(" \\\n".join(curl_preview), language="bash")
-
-    if st.button("🚀 Execute Query & Log Request", type="primary", use_container_width=True):
+    # 3. Fire Test Request
+    if st.button("🚀 Fire & Log Request", type="primary", use_container_width=True):
         req_id = str(uuid.uuid4())
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
         
-        # Determine body type
-        b_type = "empty"
-        if qb_body:
-            b_type = "json" if qb_body_format == "JSON" else "raw"
+        parsed_params = {}
+        if req_query:
+            from urllib.parse import parse_qs
+            parsed_params = {k: v[0] if len(v) == 1 else v for k, v in parse_qs(req_query).items()}
+
+        body_type = "empty"
+        if req_body:
+            body_type = "json" if req_body.strip().startswith("{") or req_body.strip().startswith("[") else "text"
+        elif uploaded_files_data:
+            body_type = "multipart"
+
+        full_url = f"http://127.0.0.1:{API_PORT}{test_path}?{req_query}" if req_query else f"http://127.0.0.1:{API_PORT}{test_path}"
+
+        headers = {
+            "User-Agent": "3WayTesterStudio/1.0",
+            "Content-Type": "multipart/form-data" if uploaded_files_data else ("application/json" if body_type == "json" else "text/plain")
+        }
 
         db.insert_log({
             "request_id": req_id,
             "timestamp": ts,
-            "method": qb_method,
-            "url": target_full_url,
-            "path": qb_path,
-            "query_params": qb_params,
-            "raw_query_string": raw_qb_qs,
-            "headers": qb_headers,
+            "method": test_method,
+            "url": full_url,
+            "path": test_path,
+            "query_params": parsed_params,
+            "raw_query_string": req_query,
+            "headers": headers,
             "cookies": {},
-            "client_ip": "127.0.0.1 (Query Builder)",
-            "user_agent": "APIQueryBuilder/1.0",
-            "content_type": qb_headers.get("Content-Type", ""),
-            "content_length": len(qb_body),
-            "body_type": b_type,
-            "body": qb_body,
+            "client_ip": "127.0.0.1 (Tester Studio)",
+            "user_agent": "3WayTesterStudio/1.0",
+            "content_type": headers["Content-Type"],
+            "content_length": len(req_body) if req_body else (uploaded_files_data[0]["size_bytes"] if uploaded_files_data else 0),
+            "body_type": body_type,
+            "body": req_body,
             "form_data": {},
-            "files": [],
+            "files": uploaded_files_data,
             "response_status": MOCK_CONFIG["status_code"],
-            "duration_ms": 0.8
+            "duration_ms": 0.9
         })
-        st.success("✅ Query Executed & Captured Successfully!")
+        st.success("✅ Request Fired & Logged!")
         st.rerun()
 
     st.markdown("---")
     st.header("⚙️ Settings & Controls")
     
-    st.subheader("🔄 Live Feed Refresh")
     refresh_sec = st.selectbox("Auto-Refresh Rate", [1, 2, 5, 10, "Manual / Off"], index=1)
     if isinstance(refresh_sec, int):
         st_autorefresh(interval=refresh_sec * 1000, key="api_sniffer_auto_refresh")
 
     st.markdown("---")
     st.subheader("🎭 Mock Response Rules")
-    mock_status = st.number_input("Response HTTP Status Code", min_value=100, max_value=599, value=MOCK_CONFIG["status_code"])
-    mock_body = st.text_area("Response Body (JSON/Text)", value=MOCK_CONFIG["response_body"], height=80)
-    mock_delay = st.slider("Artificial Latency (ms)", min_value=0, max_value=3000, value=MOCK_CONFIG["delay_ms"], step=100)
-
+    mock_status = st.number_input("Response Status Code", min_value=100, max_value=599, value=MOCK_CONFIG["status_code"])
+    mock_body = st.text_area("Response Body", value=MOCK_CONFIG["response_body"], height=70)
+    
     MOCK_CONFIG["status_code"] = mock_status
     MOCK_CONFIG["response_body"] = mock_body
-    MOCK_CONFIG["delay_ms"] = mock_delay
 
     st.markdown("---")
-    st.subheader("💾 Data Export & Storage")
-    col_exp1, col_exp2 = st.columns(2)
-    with col_exp1:
-        st.download_button(
-            "📥 JSON",
-            data=db.export_logs_json(),
-            file_name=f"api_logs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-            mime="application/json"
-        )
-    with col_exp2:
-        st.download_button(
-            "📥 CSV",
-            data=db.export_logs_csv(),
-            file_name=f"api_logs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-            mime="text/csv"
-        )
+    st.subheader("💾 Export & Clear")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.download_button("📥 JSON", data=db.export_logs_json(), file_name="api_logs.json", mime="application/json")
+    with col2:
+        st.download_button("📥 CSV", data=db.export_logs_csv(), file_name="api_logs.csv", mime="text/csv")
 
-    if st.button("🗑️ Clear All Logs", type="secondary", use_container_width=True):
+    if st.button("🗑️ Clear All Logs", use_container_width=True):
         db.clear_logs()
         st.rerun()
 
 # -----------------------------------------------------------------------------
-# Main Header & Dashboard Stats
+# Main Header & Dashboard
 # -----------------------------------------------------------------------------
 st.title("🛰️ API Request Sniffer & Inspection Dashboard")
 st.caption("Capturing, logging, and inspecting incoming HTTP requests in real-time.")
@@ -452,18 +438,13 @@ m_col6.metric("🟣 PATCH", method_stats.get("PATCH", 0))
 
 st.markdown("---")
 
-# -----------------------------------------------------------------------------
 # Search & Filter Controls
-# -----------------------------------------------------------------------------
 f_col1, f_col2 = st.columns([3, 1])
-
 with f_col1:
-    search_term = st.text_input("🔍 Search Logs (Path, URL, Headers, Body, Params, Client IP)", placeholder="Type path, parameter, header value or keyword...")
-
+    search_term = st.text_input("🔍 Search Logs", placeholder="Search by path, URL, header, body, query, IP...")
 with f_col2:
-    method_filter = st.multiselect("Filter HTTP Methods", ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
+    method_filter = st.multiselect("Filter Methods", ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
 
-# Fetch filtered logs from SQLite
 logs = db.get_logs(
     limit=200,
     method_filter=method_filter if method_filter else None,
@@ -471,9 +452,9 @@ logs = db.get_logs(
 )
 
 if not logs:
-    st.info("ℹ️ No incoming HTTP requests logged yet. Use the **API Query Builder** in the sidebar to fire and capture your first API request!")
+    st.info("ℹ️ No logs captured yet. Select a method and test mode in the sidebar **3-Way Request Tester** to fire your first request!")
 else:
-    st.write(f"Showing **{len(logs)}** logged requests (sorted newest first):")
+    st.write(f"Showing **{len(logs)}** logged requests (newest first):")
     
     for item in logs:
         log_id = item["id"]
@@ -503,9 +484,6 @@ else:
                 "⚙️ Actions"
             ])
 
-            # -----------------------------------------------------------------
-            # Tab 1: Overview
-            # -----------------------------------------------------------------
             with tab_overview:
                 o_c1, o_c2 = st.columns(2)
                 with o_c1:
@@ -521,44 +499,31 @@ else:
                     st.write(f"**Payload Size:** `{item['content_length']} bytes`")
                     st.write(f"**Response Status Served:** `{item['response_status']}` ({item['duration_ms']} ms)")
 
-            # -----------------------------------------------------------------
-            # Tab 2: Query Parameters (Un-redacted)
-            # -----------------------------------------------------------------
             with tab_params:
-                st.markdown("#### 🔗 URL Query Parameters (Full & Un-redacted)")
+                st.markdown("#### 🔗 URL Query Parameters")
                 if item["raw_query_string"]:
                     st.caption(f"**Raw Query String:** `{item['raw_query_string']}`")
-                
                 if item["query_params"]:
                     st.json(item["query_params"])
                 else:
-                    st.info("No query parameters present in this request.")
+                    st.info("No query parameters in this request.")
 
-            # -----------------------------------------------------------------
-            # Tab 3: Headers & Cookies (Un-redacted)
-            # -----------------------------------------------------------------
             with tab_headers:
                 h_c1, h_c2 = st.columns(2)
                 with h_c1:
-                    st.markdown("#### 📥 Request Headers")
+                    st.markdown("#### 📥 Headers")
                     st.json(item["headers"])
                 with h_c2:
                     st.markdown("#### 🍪 Cookies")
                     if item["cookies"]:
                         st.json(item["cookies"])
                     else:
-                        st.info("No cookies sent with this request.")
+                        st.info("No cookies.")
 
-            # -----------------------------------------------------------------
-            # Tab 4: Request Body & Form Data (Un-redacted)
-            # -----------------------------------------------------------------
             with tab_body:
                 st.markdown(f"#### 📝 Request Body (`Type: {body_type}`)")
-                
                 if item["form_data"]:
-                    st.markdown("**Form Data Fields:**")
                     st.json(item["form_data"])
-
                 if item["body"]:
                     if body_type == "json":
                         try:
@@ -566,32 +531,24 @@ else:
                         except Exception:
                             st.code(item["body"], language="json")
                     elif body_type == "binary":
-                        st.warning("Binary body content detected.")
                         st.code(item["body"], language="text")
                     else:
                         st.code(item["body"], language="text")
                 elif not item["form_data"]:
                     st.info("Request body is empty.")
 
-            # -----------------------------------------------------------------
-            # Tab 5: Multipart Uploaded Files
-            # -----------------------------------------------------------------
             with tab_files:
                 st.markdown("#### 📁 Uploaded Files")
                 if not item["files"]:
-                    st.info("No files uploaded with this request.")
+                    st.info("No files uploaded.")
                 else:
                     for idx, f_item in enumerate(item["files"]):
                         f_c1, f_c2 = st.columns([3, 1])
                         with f_c1:
-                            st.write(f"**Field Name:** `{f_item['field']}`")
-                            st.write(f"**Original Filename:** `{f_item['filename']}`")
-                            st.write(f"**Size:** `{f_item['size_bytes']} bytes` | **MD5 Checksum:** `{f_item['md5']}`")
-                            st.write(f"**MIME Type:** `{f_item['content_type']}`")
-                            
+                            st.write(f"**Filename:** `{f_item['filename']}` | **Size:** `{f_item['size_bytes']} bytes`")
+                            st.write(f"**MD5 Checksum:** `{f_item['md5']}`")
                             if os.path.exists(f_item["saved_path"]) and f_item["content_type"].startswith("image/"):
                                 st.image(f_item["saved_path"], width=200, caption=f_item["filename"])
-                        
                         with f_c2:
                             if os.path.exists(f_item["saved_path"]):
                                 with open(f_item["saved_path"], "rb") as file_data:
@@ -603,13 +560,9 @@ else:
                                         key=f"dl_{log_id}_{idx}"
                                     )
 
-            # -----------------------------------------------------------------
-            # Tab 6: Code Snippets & Replay
-            # -----------------------------------------------------------------
             with tab_code:
-                st.markdown("#### 💻 Export / Copy Request as Code")
-                lang = st.radio("Select Language", ["cURL", "Python (requests)", "JavaScript (fetch)"], horizontal=True, key=f"lang_{log_id}")
-                
+                st.markdown("#### 💻 Code Snippets & Replay")
+                lang = st.radio("Language", ["cURL", "Python (requests)", "JavaScript (fetch)"], horizontal=True, key=f"lang_{log_id}")
                 if lang == "cURL":
                     st.code(generate_curl(item), language="bash")
                 elif lang == "Python (requests)":
@@ -618,10 +571,8 @@ else:
                     st.code(generate_javascript(item), language="javascript")
 
                 st.markdown("---")
-                st.markdown("#### 🔄 Replay / Resend Request")
-                replay_target = st.text_input("Target URL for Replay", value=item["url"], key=f"replay_url_{log_id}")
-                
-                if st.button("🚀 Resend Captured Request", key=f"btn_replay_{log_id}"):
+                replay_target = st.text_input("Target URL", value=item["url"], key=f"replay_url_{log_id}")
+                if st.button("🚀 Resend Request", key=f"btn_replay_{log_id}"):
                     import requests as req_lib
                     try:
                         headers_to_send = {k: v for k, v in item["headers"].items() if k.lower() not in ["host", "content-length"]}
@@ -633,15 +584,10 @@ else:
                             timeout=10
                         )
                         st.success(f"Replay Sent! Response Status: {res.status_code}")
-                        st.code(res.text[:1000], language="text")
                     except Exception as e:
                         st.error(f"Replay failed: {e}")
 
-            # -----------------------------------------------------------------
-            # Tab 7: Actions
-            # -----------------------------------------------------------------
             with tab_actions:
-                st.markdown("#### ⚙️ Manage Single Log Entry")
-                if st.button("❌ Delete This Log Entry", key=f"del_{log_id}", type="secondary"):
+                if st.button("❌ Delete Log Entry", key=f"del_{log_id}"):
                     db.delete_log(log_id)
                     st.rerun()
