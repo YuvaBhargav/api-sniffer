@@ -12,8 +12,6 @@ from flask import Flask, request, jsonify, make_response
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
-import tornado.web
-
 import db
 
 # -----------------------------------------------------------------------------
@@ -33,7 +31,7 @@ MOCK_CONFIG = {
 }
 
 # -----------------------------------------------------------------------------
-# 2. Flask Webhook Receiver Application (For Dual-Port / Local / Docker / Render)
+# 2. Flask Webhook Receiver Application
 # -----------------------------------------------------------------------------
 flask_app = Flask(__name__)
 
@@ -253,7 +251,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Automatic capture of URL query parameters when accessed via Streamlit Cloud URL
+# Auto-capture URL query parameters on page load if present in query string
 if st.query_params:
     qp = dict(st.query_params)
     req_id = str(uuid.uuid4())
@@ -299,23 +297,105 @@ st.markdown("""
     .badge-put { background-color: #f57c00; color: white; padding: 2px 8px; border-radius: 4px; font-weight: bold; }
     .badge-delete { background-color: #c62828; color: white; padding: 2px 8px; border-radius: 4px; font-weight: bold; }
     .badge-patch { background-color: #6a1b9a; color: white; padding: 2px 8px; border-radius: 4px; font-weight: bold; }
-    .badge-options { background-color: #424242; color: white; padding: 2px 8px; border-radius: 4px; font-weight: bold; }
-    .badge-head { background-color: #37474f; color: white; padding: 2px 8px; border-radius: 4px; font-weight: bold; }
     .stCodeBlock { font-family: monospace; }
 </style>
 """, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# Sidebar Settings & Config
+# Sidebar: Interactive API Query Builder & Settings
 # -----------------------------------------------------------------------------
 with st.sidebar:
-    st.header("⚙️ Sniffer Control & Settings")
+    st.header("🛠️ API Query Builder")
+    st.caption("Construct and fire custom API requests directly into the sniffer.")
+
+    qb_method = st.selectbox("HTTP Method", ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"], key="qb_method")
+    qb_path = st.text_input("Endpoint Subpath", value="/api/v1/users", key="qb_path")
     
-    st.success("🟢 **API Listener Active**")
-    st.info("💡 **Local Listener Port**: `5000`\n\n📌 **Streamlit Cloud URL Sniffing**:\nAppend `?key=value` to your browser URL to capture GET parameters automatically!")
-    st.caption("Listening for all `GET`, `POST`, `PUT`, `DELETE`, `PATCH`, `OPTIONS`, `HEAD` HTTP requests.")
+    st.markdown("**Query Parameters**")
+    qb_q_key1 = st.text_input("Param 1 Key", value="event", key="qb_k1")
+    qb_q_val1 = st.text_input("Param 1 Value", value="test", key="qb_v1")
+    
+    qb_q_key2 = st.text_input("Param 2 Key", value="status", key="qb_k2")
+    qb_q_val2 = st.text_input("Param 2 Value", value="activepan", key="qb_v2")
+
+    qb_q_key3 = st.text_input("Param 3 Key", value="email", key="qb_k3")
+    qb_q_val3 = st.text_input("Param 3 Value", value="gmail", key="qb_v3")
+
+    # Build query string dictionary
+    qb_params = {}
+    if qb_q_key1: qb_params[qb_q_key1] = qb_q_val1
+    if qb_q_key2: qb_params[qb_q_key2] = qb_q_val2
+    if qb_q_key3: qb_params[qb_q_key3] = qb_q_val3
+
+    raw_qb_qs = "&".join([f"{k}={v}" for k, v in qb_params.items()])
+
+    st.markdown("**Request Headers**")
+    qb_h_key = st.text_input("Header Name", value="Authorization", key="qb_hk")
+    qb_h_val = st.text_input("Header Value", value="Bearer sample_token_123", key="qb_hv")
+
+    qb_headers = {"User-Agent": "APIQueryBuilder/1.0"}
+    if qb_h_key:
+        qb_headers[qb_h_key] = qb_h_val
+
+    st.markdown("**Request Body (JSON / Text)**")
+    qb_body_format = st.radio("Body Type", ["JSON", "Raw Text", "None"], key="qb_bformat", horizontal=True)
+    
+    default_json_body = '{\n  "event": "test",\n  "status": "activepan",\n  "email": "gmail"\n}'
+    qb_body = ""
+    if qb_body_format == "JSON":
+        qb_body = st.text_area("JSON Payload", value=default_json_body, height=100, key="qb_body_json")
+        qb_headers["Content-Type"] = "application/json"
+    elif qb_body_format == "Raw Text":
+        qb_body = st.text_area("Raw Text", value="sample_payload_data=123", height=80, key="qb_body_text")
+        qb_headers["Content-Type"] = "text/plain"
+
+    # Preview Generated Request cURL
+    target_full_url = f"http://127.0.0.1:{API_PORT}{qb_path}?{raw_qb_qs}" if raw_qb_qs else f"http://127.0.0.1:{API_PORT}{qb_path}"
+    
+    with st.expander("👀 View Generated cURL Command"):
+        curl_preview = [f"curl -X {qb_method} '{target_full_url}'"]
+        for hk, hv in qb_headers.items():
+            curl_preview.append(f"  -H '{hk}: {hv}'")
+        if qb_body and qb_method in ["POST", "PUT", "PATCH", "DELETE"]:
+            curl_preview.append(f"  -d '{qb_body}'")
+        st.code(" \\\n".join(curl_preview), language="bash")
+
+    if st.button("🚀 Execute Query & Log Request", type="primary", use_container_width=True):
+        req_id = str(uuid.uuid4())
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        
+        # Determine body type
+        b_type = "empty"
+        if qb_body:
+            b_type = "json" if qb_body_format == "JSON" else "raw"
+
+        db.insert_log({
+            "request_id": req_id,
+            "timestamp": ts,
+            "method": qb_method,
+            "url": target_full_url,
+            "path": qb_path,
+            "query_params": qb_params,
+            "raw_query_string": raw_qb_qs,
+            "headers": qb_headers,
+            "cookies": {},
+            "client_ip": "127.0.0.1 (Query Builder)",
+            "user_agent": "APIQueryBuilder/1.0",
+            "content_type": qb_headers.get("Content-Type", ""),
+            "content_length": len(qb_body),
+            "body_type": b_type,
+            "body": qb_body,
+            "form_data": {},
+            "files": [],
+            "response_status": MOCK_CONFIG["status_code"],
+            "duration_ms": 0.8
+        })
+        st.success("✅ Query Executed & Captured Successfully!")
+        st.rerun()
 
     st.markdown("---")
+    st.header("⚙️ Settings & Controls")
+    
     st.subheader("🔄 Live Feed Refresh")
     refresh_sec = st.selectbox("Auto-Refresh Rate", [1, 2, 5, 10, "Manual / Off"], index=1)
     if isinstance(refresh_sec, int):
@@ -324,7 +404,7 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("🎭 Mock Response Rules")
     mock_status = st.number_input("Response HTTP Status Code", min_value=100, max_value=599, value=MOCK_CONFIG["status_code"])
-    mock_body = st.text_area("Response Body (JSON/Text)", value=MOCK_CONFIG["response_body"], height=100)
+    mock_body = st.text_area("Response Body (JSON/Text)", value=MOCK_CONFIG["response_body"], height=80)
     mock_delay = st.slider("Artificial Latency (ms)", min_value=0, max_value=3000, value=MOCK_CONFIG["delay_ms"], step=100)
 
     MOCK_CONFIG["status_code"] = mock_status
@@ -333,7 +413,6 @@ with st.sidebar:
 
     st.markdown("---")
     st.subheader("💾 Data Export & Storage")
-    
     col_exp1, col_exp2 = st.columns(2)
     with col_exp1:
         st.download_button(
@@ -350,55 +429,15 @@ with st.sidebar:
             mime="text/csv"
         )
 
-    if st.button("🗑️ Clear All Logs", type="primary", use_container_width=True):
+    if st.button("🗑️ Clear All Logs", type="secondary", use_container_width=True):
         db.clear_logs()
         st.rerun()
-
-    st.markdown("---")
-    st.subheader("🧪 Built-in API Request Tester")
-    with st.expander("Send Test Request"):
-        test_method = st.selectbox("Method", ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
-        test_subpath = st.text_input("Subpath", value="/api/v1/test")
-        test_query = st.text_input("Query String", value="event=test&status=activepan&email=gmail")
-        test_body = st.text_area("JSON / Body", value='{"event": "user_signup", "user_id": 1042}')
-        
-        if st.button("🚀 Send Request Now"):
-            req_id = str(uuid.uuid4())
-            ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-            parsed_params = {}
-            if test_query:
-                from urllib.parse import parse_qs
-                parsed_params = {k: v[0] if len(v)==1 else v for k,v in parse_qs(test_query).items()}
-            
-            db.insert_log({
-                "request_id": req_id,
-                "timestamp": ts,
-                "method": test_method,
-                "url": f"https://yuvapi-sniffer.streamlit.app{test_subpath}?{test_query}",
-                "path": test_subpath,
-                "query_params": parsed_params,
-                "raw_query_string": test_query,
-                "headers": {"User-Agent": "StreamlitCloudSandbox/1.0", "Content-Type": "application/json"},
-                "cookies": {},
-                "client_ip": "127.0.0.1",
-                "user_agent": "StreamlitCloudSandbox/1.0",
-                "content_type": "application/json",
-                "content_length": len(test_body),
-                "body_type": "json",
-                "body": test_body,
-                "form_data": {},
-                "files": [],
-                "response_status": MOCK_CONFIG["status_code"],
-                "duration_ms": 1.2
-            })
-            st.success("Captured Test Request Successfully!")
-            st.rerun()
 
 # -----------------------------------------------------------------------------
 # Main Header & Dashboard Stats
 # -----------------------------------------------------------------------------
 st.title("🛰️ API Request Sniffer & Inspection Dashboard")
-st.caption("Capturing, logging, and displaying incoming HTTP requests in real-time.")
+st.caption("Capturing, logging, and inspecting incoming HTTP requests in real-time.")
 
 total_logs = db.get_total_count()
 method_stats = db.get_method_stats()
@@ -432,7 +471,7 @@ logs = db.get_logs(
 )
 
 if not logs:
-    st.info("ℹ️ No incoming HTTP requests logged yet. Use the sidebar API Request Tester or append `?event=test&status=activepan` to your browser URL!")
+    st.info("ℹ️ No incoming HTTP requests logged yet. Use the **API Query Builder** in the sidebar to fire and capture your first API request!")
 else:
     st.write(f"Showing **{len(logs)}** logged requests (sorted newest first):")
     
@@ -446,7 +485,6 @@ else:
         files = item["files"]
         file_badge = f" 📁 ({len(files)} file{'s' if len(files)>1 else ''})" if files else ""
 
-        # Method badge styling
         badge_emoji = {
             "GET": "🟢", "POST": "🔵", "PUT": "🟡",
             "DELETE": "🔴", "PATCH": "🟣", "OPTIONS": "⚪", "HEAD": "⚫"
