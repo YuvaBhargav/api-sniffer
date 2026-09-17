@@ -67,14 +67,12 @@ DASHBOARD_HTML = """
         h1 { font-size: 1.25rem; font-weight: 600; display: flex; align-items: center; gap: 8px; }
         .btn { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 500; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }
         .btn:hover { background: #30363d; color: #fff; }
-        .btn-danger { background: #7ee787; color: #0b0e14; border: none; font-weight: 600; }
-        .btn-danger:hover { background: #56d364; }
         .btn-clear { background: #da3633; color: #fff; border: none; }
         .btn-clear:hover { background: #f85149; }
         
-        .metrics-bar { display: flex; gap: 12px; margin-bottom: 16px; }
-        .metric-pill { background: #161b22; border: 1px solid #21262d; border-radius: 6px; padding: 8px 14px; display: flex; align-items: center; gap: 8px; font-size: 12px; }
-        .metric-num { font-weight: 700; font-size: 14px; }
+        .metrics-bar { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+        .metric-pill { background: #161b22; border: 1px solid #21262d; border-radius: 6px; padding: 6px 12px; display: flex; align-items: center; gap: 6px; font-size: 11px; }
+        .metric-num { font-weight: 700; font-size: 13px; }
         
         .layout-grid { display: grid; grid-template-columns: 360px 1fr; gap: 16px; }
         .panel { background: #161b22; border: 1px solid #21262d; border-radius: 8px; padding: 14px; }
@@ -90,6 +88,10 @@ DASHBOARD_HTML = """
         .badge-PUT { background: #d29922; color: #0b0e14; }
         .badge-DELETE { background: #da3633; color: #fff; }
         .badge-PATCH { background: #8957e5; color: #fff; }
+        .badge-OPTIONS { background: #6e7681; color: #fff; }
+        .badge-HEAD { background: #388bfd; color: #fff; }
+        .badge-TRACE { background: #d4a72c; color: #0b0e14; }
+        .badge-OTHER { background: #8b949e; color: #0b0e14; }
 
         .log-item { background: #0d1117; border: 1px solid #21262d; border-radius: 6px; margin-bottom: 8px; overflow: hidden; }
         .log-header { padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; }
@@ -114,7 +116,7 @@ DASHBOARD_HTML = """
         </div>
     </header>
 
-    <!-- Minimal Metrics -->
+    <!-- Comprehensive Metrics Bar for All API Methods -->
     <div class="metrics-bar">
         <div class="metric-pill"><span>Total:</span> <span class="metric-num" id="stat-total">0</span></div>
         <div class="metric-pill"><span class="method-badge badge-GET">GET</span> <span class="metric-num" id="stat-get">0</span></div>
@@ -122,10 +124,14 @@ DASHBOARD_HTML = """
         <div class="metric-pill"><span class="method-badge badge-PUT">PUT</span> <span class="metric-num" id="stat-put">0</span></div>
         <div class="metric-pill"><span class="method-badge badge-DELETE">DELETE</span> <span class="metric-num" id="stat-delete">0</span></div>
         <div class="metric-pill"><span class="method-badge badge-PATCH">PATCH</span> <span class="metric-num" id="stat-patch">0</span></div>
+        <div class="metric-pill"><span class="method-badge badge-OPTIONS">OPTIONS</span> <span class="metric-num" id="stat-options">0</span></div>
+        <div class="metric-pill"><span class="method-badge badge-HEAD">HEAD</span> <span class="metric-num" id="stat-head">0</span></div>
+        <div class="metric-pill"><span class="method-badge badge-TRACE">TRACE</span> <span class="metric-num" id="stat-trace">0</span></div>
+        <div class="metric-pill"><span class="method-badge badge-OTHER">OTHER</span> <span class="metric-num" id="stat-other">0</span></div>
     </div>
 
     <div class="layout-grid">
-        <!-- Sidebar: Minimal cURL Builder -->
+        <!-- Sidebar: cURL Generator supporting all HTTP methods -->
         <div class="panel">
             <div class="panel-title">⚡ cURL Generator</div>
             
@@ -136,7 +142,14 @@ DASHBOARD_HTML = """
                 <div style="flex: 1;">
                     <label>Method</label>
                     <select id="gen-method" onchange="updateCurl()">
-                        <option>GET</option><option selected>POST</option><option>PUT</option><option>DELETE</option><option>PATCH</option>
+                        <option>GET</option>
+                        <option selected>POST</option>
+                        <option>PUT</option>
+                        <option>DELETE</option>
+                        <option>PATCH</option>
+                        <option>OPTIONS</option>
+                        <option>HEAD</option>
+                        <option>TRACE</option>
                     </select>
                 </div>
                 <div style="flex: 2;">
@@ -199,7 +212,9 @@ DASHBOARD_HTML = """
             let url = host + subpath;
             let cmd = `curl -X ${method} "${url}"`;
 
-            if (mode === 'payload') {
+            if (method === 'HEAD') {
+                cmd = `curl -I "${url}"`;
+            } else if (mode === 'payload') {
                 const payload = document.getElementById('gen-payload').value;
                 cmd += ` \\\n  -H "Content-Type: application/json" \\\n  -d '${payload}'`;
             } else if (mode === 'file') {
@@ -209,7 +224,7 @@ DASHBOARD_HTML = """
             } else if (mode === 'query') {
                 const q = document.getElementById('gen-query').value;
                 url += `?${q}`;
-                cmd = `curl -X ${method} "${url}"`;
+                cmd = method === 'HEAD' ? `curl -I "${url}"` : `curl -X ${method} "${url}"`;
             }
 
             document.getElementById('curl-out').innerText = cmd;
@@ -231,9 +246,18 @@ DASHBOARD_HTML = """
                 document.getElementById('stat-put').innerText = logs.filter(l => l.method==='PUT').length;
                 document.getElementById('stat-delete').innerText = logs.filter(l => l.method==='DELETE').length;
                 document.getElementById('stat-patch').innerText = logs.filter(l => l.method==='PATCH').length;
+                document.getElementById('stat-options').innerText = logs.filter(l => l.method==='OPTIONS').length;
+                document.getElementById('stat-head').innerText = logs.filter(l => l.method==='HEAD').length;
+                document.getElementById('stat-trace').innerText = logs.filter(l => l.method==='TRACE').length;
+                document.getElementById('stat-other').innerText = logs.filter(l => !['GET','POST','PUT','DELETE','PATCH','OPTIONS','HEAD','TRACE'].includes(l.method)).length;
 
                 filterLogs();
             } catch (e) {}
+        }
+
+        function getBadgeClass(method) {
+            const known = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD', 'TRACE'];
+            return known.includes(method) ? `badge-${method}` : 'badge-OTHER';
         }
 
         function filterLogs() {
@@ -250,7 +274,7 @@ DASHBOARD_HTML = """
                 <div class="log-item" id="item-${idx}">
                     <div class="log-header" onclick="document.getElementById('item-${idx}').classList.toggle('open')">
                         <div class="log-title">
-                            <span class="method-badge badge-${item.method}">${item.method}</span>
+                            <span class="method-badge ${getBadgeClass(item.method)}">${item.method}</span>
                             <span>${escapeHtml(item.path)}</span>
                         </div>
                         <div class="log-meta">${item.timestamp} | ${item.client_ip}</div>
@@ -359,10 +383,13 @@ def health_check():
         "timestamp": get_ist_now_str()
     }), 200
 
-@flask_app.route("/api/<path:subpath>", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"])
-@flask_app.route("/webhook/<path:subpath>", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"])
-@flask_app.route("/capture/<path:subpath>", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"])
-@flask_app.route("/hook/<path:subpath>", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"])
+# Catch-all endpoint handler for ALL HTTP methods including OPTIONS, HEAD, TRACE, CONNECT & custom methods
+ALL_HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE", "CONNECT"]
+
+@flask_app.route("/api/<path:subpath>", methods=ALL_HTTP_METHODS)
+@flask_app.route("/webhook/<path:subpath>", methods=ALL_HTTP_METHODS)
+@flask_app.route("/capture/<path:subpath>", methods=ALL_HTTP_METHODS)
+@flask_app.route("/hook/<path:subpath>", methods=ALL_HTTP_METHODS)
 def catch_all(subpath=""):
     start_time = time.time()
     req_id = str(uuid.uuid4())
