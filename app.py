@@ -5,9 +5,15 @@ import json
 import uuid
 import hashlib
 import threading
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from werkzeug.utils import secure_filename
 from flask import Flask, request, jsonify, make_response, render_template_string
+
+# Timezone definition for IST (UTC+5:30)
+IST = timezone(timedelta(hours=5, minutes=30))
+
+def get_ist_now_str() -> str:
+    return datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] + " IST"
 
 # Optional Streamlit imports (safe for WSGI servers like PythonAnywhere)
 try:
@@ -100,7 +106,7 @@ DASHBOARD_HTML = """
 </head>
 <body>
     <header>
-        <h1>🛰️ API Request Sniffer</h1>
+        <h1>🛰️ API Request Sniffer <span style="font-size: 11px; color: #58a6ff; font-weight: normal;">(IST Timezone)</span></h1>
         <div style="display: flex; gap: 8px;">
             <button class="btn btn-clear" onclick="clearLogs()">🗑️ Clear</button>
             <a href="/export/json" class="btn" download>📥 JSON</a>
@@ -168,7 +174,7 @@ DASHBOARD_HTML = """
         <!-- Main Feed -->
         <div class="panel">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                <div class="panel-title" style="margin-bottom: 0;">📋 Captured Feed</div>
+                <div class="panel-title" style="margin-bottom: 0;">📋 Captured Feed (IST)</div>
                 <input type="text" id="search-input" style="width: 220px;" placeholder="🔍 Filter logs..." oninput="filterLogs()">
             </div>
             <div id="logs-container">No requests logged yet.</div>
@@ -215,11 +221,10 @@ DASHBOARD_HTML = """
                 const logs = await res.json();
                 
                 const currentHash = JSON.stringify(logs);
-                if (currentHash === lastLogHash) return; // Zero-lag: skip DOM re-render if data unchanged
+                if (currentHash === lastLogHash) return;
                 lastLogHash = currentHash;
                 cachedLogs = logs;
 
-                // Update Metrics
                 document.getElementById('stat-total').innerText = logs.length;
                 document.getElementById('stat-get').innerText = logs.filter(l => l.method==='GET').length;
                 document.getElementById('stat-post').innerText = logs.filter(l => l.method==='POST').length;
@@ -296,7 +301,7 @@ def web_dashboard():
         raw_qs = request.query_string.decode("utf-8", errors="replace")
         
         req_id = str(uuid.uuid4())
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        timestamp = get_ist_now_str()
         
         db.insert_log({
             "request_id": req_id,
@@ -335,14 +340,14 @@ def api_clear_logs():
 def export_json():
     response = make_response(db.export_logs_json())
     response.headers["Content-Type"] = "application/json"
-    response.headers["Content-Disposition"] = "attachment; filename=api_logs.json"
+    response.headers["Content-Disposition"] = f"attachment; filename=api_logs_{datetime.now(IST).strftime('%Y%m%d_%H%M%S')}_IST.json"
     return response
 
 @flask_app.route("/export/csv", methods=["GET"])
 def export_csv():
     response = make_response(db.export_logs_csv())
     response.headers["Content-Type"] = "text/csv"
-    response.headers["Content-Disposition"] = "attachment; filename=api_logs.csv"
+    response.headers["Content-Disposition"] = f"attachment; filename=api_logs_{datetime.now(IST).strftime('%Y%m%d_%H%M%S')}_IST.csv"
     return response
 
 @flask_app.route("/healthz", methods=["GET"])
@@ -351,7 +356,7 @@ def health_check():
         "status": "healthy",
         "service": "api-sniffer-listener",
         "total_logged": db.get_total_count(),
-        "timestamp": datetime.now().isoformat()
+        "timestamp": get_ist_now_str()
     }), 200
 
 @flask_app.route("/api/<path:subpath>", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"])
@@ -361,7 +366,7 @@ def health_check():
 def catch_all(subpath=""):
     start_time = time.time()
     req_id = str(uuid.uuid4())
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+    timestamp = get_ist_now_str()
 
     if MOCK_CONFIG["delay_ms"] > 0:
         time.sleep(MOCK_CONFIG["delay_ms"] / 1000.0)

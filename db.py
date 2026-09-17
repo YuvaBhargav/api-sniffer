@@ -3,8 +3,10 @@ import json
 import sqlite3
 import csv
 import io
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Optional
+
+IST = timezone(timedelta(hours=5, minutes=30))
 
 DB_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sniffer_logs.db")
 
@@ -50,6 +52,7 @@ def init_db():
 def insert_log(log_data: Dict[str, Any]):
     conn = get_connection()
     cursor = conn.cursor()
+    now_ist = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S IST")
     cursor.execute("""
         INSERT INTO request_logs (
             request_id, timestamp, method, url, path,
@@ -59,7 +62,7 @@ def insert_log(log_data: Dict[str, Any]):
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         log_data.get("request_id", ""),
-        log_data.get("timestamp", datetime.now().isoformat()),
+        log_data.get("timestamp", now_ist),
         log_data.get("method", "GET").upper(),
         log_data.get("url", ""),
         log_data.get("path", "/"),
