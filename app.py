@@ -9,6 +9,20 @@ from datetime import datetime, timezone, timedelta
 from werkzeug.utils import secure_filename
 from flask import Flask, request, jsonify, make_response, render_template_string, send_from_directory
 
+# Automatic PythonAnywhere Free Tier Proxy Configuration for WSGI Workers
+is_pythonanywhere = (
+    "pythonanywhere" in os.environ.get("PYTHONANYWHERE_SITE", "").lower() or
+    "pythonanywhere" in sys.executable.lower() or
+    os.path.exists("/var/server") or
+    os.path.exists("/home/yuvabhargavv") or
+    "pythonanywhere" in os.getcwd().lower()
+)
+if is_pythonanywhere:
+    os.environ["HTTP_PROXY"] = "http://proxy.server:3128"
+    os.environ["HTTPS_PROXY"] = "http://proxy.server:3128"
+    os.environ["http_proxy"] = "http://proxy.server:3128"
+    os.environ["https_proxy"] = "http://proxy.server:3128"
+
 # Timezone definition for IST (UTC+5:30)
 IST = timezone(timedelta(hours=5, minutes=30))
 
