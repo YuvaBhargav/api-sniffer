@@ -14,14 +14,14 @@ try:
     import streamlit as st
     from streamlit_autorefresh import st_autorefresh
     HAS_STREAMLIT = True
-except ImportError:
+except Exception:
     st = None
     st_autorefresh = None
     HAS_STREAMLIT = False
 
 try:
     import tornado.web
-except ImportError:
+except Exception:
     tornado = None
 
 import db
@@ -254,7 +254,6 @@ DASHBOARD_HTML = """
 @flask_app.route("/dashboard", methods=["GET"])
 @flask_app.route("/ui", methods=["GET"])
 def web_dashboard():
-    # If query parameters exist on root GET request (e.g. /?event=test), log it and show dashboard
     if request.args and request.path == "/":
         query_params_dict = request.args.to_dict(flat=False)
         query_params_clean = {k: v[0] if len(v) == 1 else v for k, v in query_params_dict.items()}
@@ -436,8 +435,25 @@ def catch_all(subpath=""):
     return response
 
 # -----------------------------------------------------------------------------
-# 3. Streamlit Runner (If executed locally via Streamlit)
+# 3. Streamlit Local Server Initialization
 # -----------------------------------------------------------------------------
+if HAS_STREAMLIT and st:
+    @st.cache_resource
+    def start_listener_server(port: int):
+        def run_flask():
+            from werkzeug.serving import make_server
+            try:
+                server = make_server("0.0.0.0", port, flask_app, threaded=True)
+                server.serve_forever()
+            except Exception:
+                pass
+
+        thread = threading.Thread(target=run_flask, daemon=True)
+        thread.start()
+        return thread
+
+    start_listener_server(API_PORT)
+
 if HAS_STREAMLIT and __name__ == "__main__":
     st.set_page_config(page_title="API Request Sniffer", page_icon="🛰️", layout="wide")
     st.title("🛰️ API Request Sniffer")

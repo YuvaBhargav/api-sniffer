@@ -1,7 +1,8 @@
 import os
 import json
 import sqlite3
-import pandas as pd
+import csv
+import io
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
@@ -167,9 +168,18 @@ def export_logs_json() -> str:
 
 def export_logs_csv() -> str:
     conn = get_connection()
-    df = pd.read_sql_query("SELECT * FROM request_logs ORDER BY id DESC;", conn)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM request_logs ORDER BY id DESC;")
+    rows = cursor.fetchall()
+    
+    output = io.StringIO()
+    if rows:
+        colnames = [column[0] for column in cursor.description]
+        writer = csv.writer(output)
+        writer.writerow(colnames)
+        for row in rows:
+            writer.writerow(list(row))
     conn.close()
-    return df.to_csv(index=False)
+    return output.getvalue()
 
-# Auto-initialize DB schema on module load
 init_db()
