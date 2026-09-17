@@ -717,8 +717,8 @@ def catch_all(subpath=""):
                     json_data = upload_res.json()
                     if json_data.get("status") == "success" and "data" in json_data:
                         tmpfiles_page_url = json_data["data"]["url"]
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[TMPFILES UPLOAD ERROR]: {type(e).__name__}: {e}", file=sys.stderr)
 
             if not tmpfiles_page_url:
                 safe_name = f"{uuid.uuid4().hex[:8]}_{orig_filename}"
