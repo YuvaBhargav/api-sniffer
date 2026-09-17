@@ -22,3 +22,8 @@ env/
 Thumbs.db
 .idea/
 .vscode/
+
+# Generated LLD & Diagram Artifacts
+API_Sniffer_LLD_Architecture.pdf
+arch_diagram.png
+seq_diagram.png
