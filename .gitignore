@@ -23,21 +23,4 @@ Thumbs.db
 .idea/
 .vscode/
 
-# Documentation & Non-Essential Files
-README.md
-LLD_DOCUMENTATION.md
-API_Sniffer_LLD_Architecture.pdf
-arch_diagram.png
-seq_diagram.png
 
-# Development, Build & Test Scripts
-build_lld_pdf.py
-generate_diagrams.py
-test_sniffer.py
-
-# Container & Non-PythonAnywhere Deployment Manifests
-Dockerfile
-docker-compose.yml
-Procfile
-render.yaml
-.devcontainer/
