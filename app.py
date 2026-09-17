@@ -188,10 +188,11 @@ DASHBOARD_HTML = """
             <select id="gen-mode" onchange="updateCurl()">
                 <option value="payload">📦 1. JSON Payload</option>
                 <option value="text">📝 2. Raw Text Body</option>
-                <option value="file">📁 3. File Upload</option>
-                <option value="query">🔗 4. Query Parameters</option>
-                <option value="form">📄 5. Form Data</option>
-                <option value="empty">⚪ 6. Empty Request</option>
+                <option value="file">📁 3. File Upload (-F "file=@path")</option>
+                <option value="file_content">📄 4. File Content Body (-d "@file.txt")</option>
+                <option value="query">🔗 5. Query Parameters</option>
+                <option value="form">📄 6. Form Data</option>
+                <option value="empty">⚪ 7. Empty Request</option>
             </select>
 
             <div id="div-payload">
@@ -207,6 +208,11 @@ DASHBOARD_HTML = """
             <div id="div-file" style="display: none;">
                 <label>Laptop File Path</label>
                 <input type="text" id="gen-file" value="@photo.png" oninput="updateCurl()">
+            </div>
+
+            <div id="div-file-content" style="display: none;">
+                <label>File Path to Send Raw Content</label>
+                <input type="text" id="gen-file-content" value="@data.txt" oninput="updateCurl()">
             </div>
 
             <div id="div-query" style="display: none;">
@@ -261,6 +267,7 @@ DASHBOARD_HTML = """
             document.getElementById('div-payload').style.display = mode === 'payload' ? 'block' : 'none';
             document.getElementById('div-text').style.display = mode === 'text' ? 'block' : 'none';
             document.getElementById('div-file').style.display = mode === 'file' ? 'block' : 'none';
+            document.getElementById('div-file-content').style.display = mode === 'file_content' ? 'block' : 'none';
             document.getElementById('div-query').style.display = mode === 'query' ? 'block' : 'none';
             document.getElementById('div-form').style.display = mode === 'form' ? 'block' : 'none';
 
@@ -281,6 +288,10 @@ DASHBOARD_HTML = """
                     let filepath = document.getElementById('gen-file').value;
                     if (!filepath.startsWith('@')) filepath = '@' + filepath;
                     cmd += ` \\\n  -F "file=${filepath}"`;
+                } else if (mode === 'file_content') {
+                    let filepath = document.getElementById('gen-file-content').value;
+                    if (!filepath.startsWith('@')) filepath = '@' + filepath;
+                    cmd += ` \\\n  -H "Content-Type: text/plain" \\\n  -d "${filepath}"`;
                 } else if (mode === 'query') {
                     const q = document.getElementById('gen-query').value;
                     url += `?${q}`;
@@ -301,6 +312,9 @@ DASHBOARD_HTML = """
                 } else if (mode === 'file') {
                     let filepath = document.getElementById('gen-file').value.replace(/^@/, '');
                     py += `files = {'file': open('${filepath}', 'rb')}\nresponse = requests.${method.toLowerCase()}(url, files=files)`;
+                } else if (mode === 'file_content') {
+                    let filepath = document.getElementById('gen-file-content').value.replace(/^@/, '');
+                    py += `data = open('${filepath}', 'rb').read()\nheaders = {"Content-Type": "text/plain"}\nresponse = requests.${method.toLowerCase()}(url, data=data, headers=headers)`;
                 } else if (mode === 'form') {
                     py += `data = "${document.getElementById('gen-form').value}"\nheaders = {"Content-Type": "application/x-www-form-urlencoded"}\nresponse = requests.${method.toLowerCase()}(url, data=data, headers=headers)`;
                 } else {
@@ -320,9 +334,26 @@ DASHBOARD_HTML = """
                     js += `,\n  headers: { "Content-Type": "application/x-www-form-urlencoded" },\n  body: "${document.getElementById('gen-form').value}"`;
                 } else if (mode === 'file') {
                     js += `,\n  body: formData // append file to FormData object`;
+                } else if (mode === 'file_content') {
+                    js += `,\n  headers: { "Content-Type": "text/plain" },\n  body: fileContent // raw content of local file`;
                 }
                 js += `\n})\n.then(res => res.text())\n.then(console.log);`;
                 code = js;
+            } else if (lang === 'powershell') {
+                let psUrl = url;
+                if (mode === 'query') psUrl += '?' + document.getElementById('gen-query').value;
+                let ps = `Invoke-RestMethod -Uri "${psUrl}" -Method ${method}`;
+                if (mode === 'payload') {
+                    ps += ` -ContentType 'application/json' -Body '${document.getElementById('gen-payload').value}'`;
+                } else if (mode === 'text') {
+                    ps += ` -ContentType 'text/plain' -Body '${document.getElementById('gen-text').value}'`;
+                } else if (mode === 'form') {
+                    ps += ` -ContentType 'application/x-www-form-urlencoded' -Body '${document.getElementById('gen-form').value}'`;
+                } else if (mode === 'file_content') {
+                    let filepath = document.getElementById('gen-file-content').value.replace(/^@/, '');
+                    ps += ` -ContentType 'text/plain' -InFile '${filepath}'`;
+                }
+                code = ps;
             } else if (lang === 'powershell') {
                 let psUrl = url;
                 if (mode === 'query') psUrl += '?' + document.getElementById('gen-query').value;
