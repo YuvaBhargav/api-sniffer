@@ -4,10 +4,11 @@ import time
 import json
 import uuid
 import hashlib
+import base64
 import threading
 from datetime import datetime, timezone, timedelta
 from werkzeug.utils import secure_filename
-from flask import Flask, request, jsonify, make_response, render_template_string, send_from_directory
+from flask import Flask, request, jsonify, make_response, render_template_string
 
 # Timezone definition for IST (UTC+5:30)
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -33,11 +34,8 @@ except Exception:
 import db
 
 # -----------------------------------------------------------------------------
-# 1. Configuration & Directories
+# 1. Configuration & Setup (Zero Local Disk File Storage Mode)
 # -----------------------------------------------------------------------------
-UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads")
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-
 API_PORT = int(os.environ.get("API_PORT", 5000))
 
 MOCK_CONFIG = {
@@ -51,11 +49,6 @@ MOCK_CONFIG = {
 # 2. Flask Webhook Receiver & Dashboard App
 # -----------------------------------------------------------------------------
 flask_app = Flask(__name__)
-
-# Route to serve and download uploaded files directly
-@flask_app.route("/uploads/<path:filename>", methods=["GET"])
-def download_uploaded_file(filename):
-    return send_from_directory(UPLOAD_DIR, filename, as_attachment=False)
 
 # Ultra-Fast Minimalist Dark-Mode HTML/JS Dashboard Template
 DASHBOARD_HTML = """
@@ -116,7 +109,7 @@ DASHBOARD_HTML = """
 </head>
 <body>
     <header>
-        <h1>🛰️ API Request Sniffer <span style="font-size: 11px; color: #58a6ff; font-weight: normal;">(IST Timezone)</span></h1>
+        <h1>🛰️ API Request Sniffer <span style="font-size: 11px; color: #58a6ff; font-weight: normal;">(Zero-Disk Mode | IST)</span></h1>
         <div style="display: flex; gap: 8px;">
             <button class="btn btn-clear" onclick="clearLogs()">🗑️ Clear</button>
             <a href="/export/json" class="btn" download>📥 JSON</a>
@@ -267,17 +260,20 @@ DASHBOARD_HTML = """
 
         function renderFiles(files) {
             if (!files || !files.length) return '';
-            return `<div class="section-sub">📁 Uploaded Files (${files.length})</div>` +
-                files.map(f => `
+            return `<div class="section-sub">📁 Uploaded Files (${files.length}) - Data URI Mode</div>` +
+                files.map(f => {
+                    const dataUrl = f.data_uri || '';
+                    const isImg = f.content_type && f.content_type.startsWith('image/');
+                    return `
                     <div class="file-box">
                         <div>
                             <strong>📄 ${escapeHtml(f.filename)}</strong> <small style="color:#8b949e">(${formatBytes(f.size_bytes)})</small>
                             <br><small style="color:#8b949e">MD5: ${f.md5}</small>
-                            ${f.content_type && f.content_type.startsWith('image/') ? `<img src="/uploads/${f.saved_filename}" class="img-preview">` : ''}
+                            ${isImg && dataUrl ? `<img src="${dataUrl}" class="img-preview">` : ''}
                         </div>
-                        <a href="/uploads/${f.saved_filename}" class="btn" download="${escapeHtml(f.filename)}">📥 Download</a>
+                        ${dataUrl ? `<a href="${dataUrl}" class="btn" download="${escapeHtml(f.filename)}">📥 Download</a>` : ''}
                     </div>
-                `).join('');
+                `}).join('');
         }
 
         function formatBytes(bytes) {
@@ -444,29 +440,26 @@ def catch_all(subpath=""):
     form_data_raw = request.form.to_dict(flat=False)
     form_data_clean = {k: v[0] if len(v) == 1 else v for k, v in form_data_raw.items()}
 
+    # ZERO DISK STORAGE: Files stored as Base64 Data URIs (0 files saved on disk!)
     files_info = []
     for file_key, file_obj in request.files.items():
         if file_obj and file_obj.filename:
             orig_filename = secure_filename(file_obj.filename)
-            saved_filename = f"{int(time.time())}_{uuid.uuid4().hex[:6]}_{orig_filename}"
-            saved_path = os.path.join(UPLOAD_DIR, saved_filename)
-            
-            file_obj.save(saved_path)
-            file_size = os.path.getsize(saved_path)
-            
-            md5_hash = hashlib.md5()
-            with open(saved_path, "rb") as f:
-                for chunk in iter(lambda: f.read(4096), b""):
-                    md5_hash.update(chunk)
-            
+            file_bytes = file_obj.read()
+            file_size = len(file_bytes)
+            md5_hash = hashlib.md5(file_bytes).hexdigest()
+            content_type = file_obj.content_type or "application/octet-stream"
+
+            b64_str = base64.b64encode(file_bytes).decode("utf-8")
+            data_uri = f"data:{content_type};base64,{b64_str}"
+
             files_info.append({
                 "field": file_key,
                 "filename": orig_filename,
-                "saved_filename": saved_filename,
-                "saved_path": saved_path,
                 "size_bytes": file_size,
-                "md5": md5_hash.hexdigest(),
-                "content_type": file_obj.content_type or "application/octet-stream"
+                "md5": md5_hash,
+                "content_type": content_type,
+                "data_uri": data_uri
             })
 
     raw_data = request.get_data()
