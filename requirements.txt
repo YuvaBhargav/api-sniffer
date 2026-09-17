@@ -5,3 +5,4 @@ streamlit-autorefresh>=1.0.1
 pandas>=2.0.0
 werkzeug>=3.0.0
 pyyaml>=6.0.1
+tornado>=6.0.0
