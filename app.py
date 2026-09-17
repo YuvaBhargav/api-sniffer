@@ -7,7 +7,7 @@ import hashlib
 import threading
 from datetime import datetime, timezone, timedelta
 from werkzeug.utils import secure_filename
-from flask import Flask, request, jsonify, make_response, render_template_string
+from flask import Flask, request, jsonify, make_response, render_template_string, send_from_directory
 
 # Timezone definition for IST (UTC+5:30)
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -48,6 +48,13 @@ MOCK_CONFIG = {
 # 2. Flask Webhook Receiver & Dashboard App
 # -----------------------------------------------------------------------------
 flask_app = Flask(__name__)
+
+UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+@flask_app.route("/uploads/<path:filename>")
+def serve_upload(filename):
+    return send_from_directory(UPLOAD_DIR, filename)
 
 # Ultra-Fast Minimalist Dark-Mode HTML/JS Dashboard Template
 DASHBOARD_HTML = """
@@ -690,7 +697,8 @@ def catch_all(subpath=""):
                 upload_res = requests.post(
                     "https://tmpfiles.org/api/v1/upload",
                     files={"file": (orig_filename, file_bytes, content_type)},
-                    timeout=10
+                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
+                    timeout=5
                 )
                 if upload_res.status_code == 200:
                     json_data = upload_res.json()
@@ -698,6 +706,13 @@ def catch_all(subpath=""):
                         tmpfiles_page_url = json_data["data"]["url"]
             except Exception:
                 pass
+
+            if not tmpfiles_page_url:
+                safe_name = f"{uuid.uuid4().hex[:8]}_{orig_filename}"
+                file_path = os.path.join(UPLOAD_DIR, safe_name)
+                with open(file_path, "wb") as f:
+                    f.write(file_bytes)
+                tmpfiles_page_url = request.host_url.rstrip("/") + f"/uploads/{safe_name}"
 
             files_info.append({
                 "field": file_key,
