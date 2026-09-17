@@ -23,7 +23,10 @@ Thumbs.db
 .idea/
 .vscode/
 
-# Generated LLD & Diagram Artifacts
+# LLD Documentation & Diagram Scripts & Artifacts
+build_lld_pdf.py
+generate_diagrams.py
+LLD_DOCUMENTATION.md
 API_Sniffer_LLD_Architecture.pdf
 arch_diagram.png
 seq_diagram.png
