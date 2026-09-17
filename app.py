@@ -3,6 +3,7 @@ import sys
 import time
 import json
 import uuid
+import hashlib
 import threading
 import requests
 from datetime import datetime, timezone, timedelta
