@@ -3,6 +3,7 @@ import sys
 import time
 import json
 import uuid
+import hashlib
 import threading
 from datetime import datetime, timezone, timedelta
 from werkzeug.utils import secure_filename
@@ -489,7 +490,7 @@ DASHBOARD_HTML = """
                         <div style="width: 100%; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
                             <div>
                                 <strong>📄 ${escapeHtml(f.filename)}</strong>
-                                <small style="color:#8b949e">(${formatBytes(f.size_bytes)})</small>
+                                <small style="color:#8b949e">(${formatBytes(f.size_bytes)}${f.md5 ? ` | MD5: ${f.md5}` : ''})</small>
                             </div>
                             ${pageUrl ? `<a href="${escapeHtml(pageUrl)}" target="_blank" style="color:#58a6ff; font-weight: 600; text-decoration: underline; word-break: break-all;">${escapeHtml(pageUrl)}</a>` : '<small style="color:#f85149">Upload failed</small>'}
                         </div>
@@ -681,6 +682,7 @@ def catch_all(subpath=""):
             orig_filename = secure_filename(file_obj.filename)
             file_bytes = file_obj.read()
             file_size = len(file_bytes)
+            md5_hash = hashlib.md5(file_bytes).hexdigest()
             content_type = file_obj.content_type or "application/octet-stream"
 
             tmpfiles_page_url = None
@@ -701,6 +703,7 @@ def catch_all(subpath=""):
                 "field": file_key,
                 "filename": orig_filename,
                 "size_bytes": file_size,
+                "md5": md5_hash,
                 "content_type": content_type,
                 "tmpfiles_url": tmpfiles_page_url
             })
