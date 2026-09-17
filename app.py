@@ -91,10 +91,18 @@ DASHBOARD_HTML = """
         .badge-TRACE { background: #d4a72c; color: #0b0e14; }
         .badge-OTHER { background: #8b949e; color: #0b0e14; }
 
+        .data-badge { padding: 2px 8px; border-radius: 12px; font-weight: 600; font-size: 11px; margin-left: 8px; display: inline-flex; align-items: center; gap: 4px; }
+        .badge-file-type { background: rgba(31, 111, 235, 0.2); color: #58a6ff; border: 1px solid rgba(56, 139, 253, 0.4); }
+        .badge-payload-type { background: rgba(137, 87, 229, 0.2); color: #bc8cff; border: 1px solid rgba(163, 113, 247, 0.4); }
+        .badge-text-type { background: rgba(210, 153, 34, 0.2); color: #e3b341; border: 1px solid rgba(210, 153, 34, 0.4); }
+        .badge-query-type { background: rgba(35, 134, 54, 0.2); color: #56d364; border: 1px solid rgba(46, 160, 67, 0.4); }
+        .badge-form-type { background: rgba(210, 153, 34, 0.2); color: #e3b341; border: 1px solid rgba(210, 153, 34, 0.4); }
+        .badge-empty-type { background: rgba(110, 118, 129, 0.15); color: #8b949e; border: 1px solid rgba(110, 118, 129, 0.3); }
+
         .log-item { background: #0d1117; border: 1px solid #21262d; border-radius: 6px; margin-bottom: 8px; overflow: hidden; }
         .log-header { padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; }
         .log-header:hover { background: #161b22; }
-        .log-title { display: flex; align-items: center; gap: 10px; font-family: monospace; font-size: 13px; }
+        .log-title { display: flex; align-items: center; gap: 8px; font-family: monospace; font-size: 13px; }
         .log-meta { color: #8b949e; font-size: 11px; }
 
         .log-details { display: none; padding: 12px; border-top: 1px solid #21262d; background: #090c10; font-size: 12px; }
@@ -109,7 +117,7 @@ DASHBOARD_HTML = """
 </head>
 <body>
     <header>
-        <h1>🛰️ API Request Sniffer <span style="font-size: 11px; color: #58a6ff; font-weight: normal;">(Zero-Disk Mode | IST)</span></h1>
+        <h1>🛰️ API Request Sniffer <span style="font-size: 11px; color: #58a6ff; font-weight: normal;">(IST Timezone)</span></h1>
         <div style="display: flex; gap: 8px;">
             <button class="btn btn-clear" onclick="clearLogs()">🗑️ Clear</button>
             <a href="/export/json" class="btn" download>📥 JSON</a>
@@ -258,9 +266,28 @@ DASHBOARD_HTML = """
             return known.includes(method) ? `badge-${method}` : 'badge-OTHER';
         }
 
+        function getIdentifierBadge(item) {
+            if (item.files && item.files.length > 0) {
+                return `<span class="data-badge badge-file-type">📁 File (${item.files.length})</span>`;
+            }
+            if (item.body && item.body_type === 'json') {
+                return `<span class="data-badge badge-payload-type">📦 JSON Payload</span>`;
+            }
+            if (item.body && item.body.trim().length > 0) {
+                return `<span class="data-badge badge-text-type">📝 Text Body</span>`;
+            }
+            if (item.form_data && Object.keys(item.form_data).length > 0) {
+                return `<span class="data-badge badge-form-type">📄 Form Data</span>`;
+            }
+            if (item.query_params && Object.keys(item.query_params).length > 0) {
+                return `<span class="data-badge badge-query-type">🔗 Query Params</span>`;
+            }
+            return `<span class="data-badge badge-empty-type">⚪ Empty</span>`;
+        }
+
         function renderFiles(files) {
             if (!files || !files.length) return '';
-            return `<div class="section-sub">📁 Uploaded Files (${files.length}) - Data URI Mode</div>` +
+            return `<div class="section-sub">📁 Uploaded Files (${files.length})</div>` +
                 files.map(f => {
                     const dataUrl = f.data_uri || '';
                     const isImg = f.content_type && f.content_type.startsWith('image/');
@@ -299,7 +326,7 @@ DASHBOARD_HTML = """
                         <div class="log-title">
                             <span class="method-badge ${getBadgeClass(item.method)}">${item.method}</span>
                             <span>${escapeHtml(item.path)}</span>
-                            ${item.files && item.files.length ? '<span style="color: #58a6ff; font-size: 11px;">📁 ' + item.files.length + ' file(s)</span>' : ''}
+                            ${getIdentifierBadge(item)}
                         </div>
                         <div class="log-meta">${item.timestamp} | ${item.client_ip}</div>
                     </div>
