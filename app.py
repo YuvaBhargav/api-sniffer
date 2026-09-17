@@ -7,7 +7,7 @@ import hashlib
 import threading
 from datetime import datetime, timezone, timedelta
 from werkzeug.utils import secure_filename
-from flask import Flask, request, jsonify, make_response, render_template_string
+from flask import Flask, request, jsonify, make_response, render_template_string, send_from_directory
 
 # Timezone definition for IST (UTC+5:30)
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -48,9 +48,14 @@ MOCK_CONFIG = {
 }
 
 # -----------------------------------------------------------------------------
-# 2. Flask Webhook Receiver & Minimalist Zero-Lag Dashboard App
+# 2. Flask Webhook Receiver & Dashboard App
 # -----------------------------------------------------------------------------
 flask_app = Flask(__name__)
+
+# Route to serve and download uploaded files directly
+@flask_app.route("/uploads/<path:filename>", methods=["GET"])
+def download_uploaded_file(filename):
+    return send_from_directory(UPLOAD_DIR, filename, as_attachment=False)
 
 # Ultra-Fast Minimalist Dark-Mode HTML/JS Dashboard Template
 DASHBOARD_HTML = """
@@ -104,6 +109,9 @@ DASHBOARD_HTML = """
         
         pre { background: #161b22; color: #79c0ff; padding: 8px 10px; border-radius: 6px; font-family: monospace; font-size: 11px; overflow-x: auto; border: 1px solid #21262d; margin-top: 4px; margin-bottom: 8px; white-space: pre-wrap; word-break: break-all; }
         .section-sub { font-weight: 600; color: #8b949e; font-size: 11px; text-transform: uppercase; margin-top: 8px; }
+        
+        .file-box { background: #161b22; border: 1px solid #30363d; padding: 10px; border-radius: 6px; margin-top: 6px; display: flex; align-items: center; justify-content: space-between; }
+        .img-preview { max-width: 180px; max-height: 120px; border-radius: 6px; border: 1px solid #30363d; margin-top: 6px; display: block; }
     </style>
 </head>
 <body>
@@ -116,7 +124,6 @@ DASHBOARD_HTML = """
         </div>
     </header>
 
-    <!-- Comprehensive Metrics Bar for All API Methods -->
     <div class="metrics-bar">
         <div class="metric-pill"><span>Total:</span> <span class="metric-num" id="stat-total">0</span></div>
         <div class="metric-pill"><span class="method-badge badge-GET">GET</span> <span class="metric-num" id="stat-get">0</span></div>
@@ -131,7 +138,6 @@ DASHBOARD_HTML = """
     </div>
 
     <div class="layout-grid">
-        <!-- Sidebar: cURL Generator supporting all HTTP methods -->
         <div class="panel">
             <div class="panel-title">⚡ cURL Generator</div>
             
@@ -184,7 +190,6 @@ DASHBOARD_HTML = """
             <pre id="curl-out">curl ...</pre>
         </div>
 
-        <!-- Main Feed -->
         <div class="panel">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                 <div class="panel-title" style="margin-bottom: 0;">📋 Captured Feed (IST)</div>
@@ -260,6 +265,28 @@ DASHBOARD_HTML = """
             return known.includes(method) ? `badge-${method}` : 'badge-OTHER';
         }
 
+        function renderFiles(files) {
+            if (!files || !files.length) return '';
+            return `<div class="section-sub">📁 Uploaded Files (${files.length})</div>` +
+                files.map(f => `
+                    <div class="file-box">
+                        <div>
+                            <strong>📄 ${escapeHtml(f.filename)}</strong> <small style="color:#8b949e">(${formatBytes(f.size_bytes)})</small>
+                            <br><small style="color:#8b949e">MD5: ${f.md5}</small>
+                            ${f.content_type && f.content_type.startsWith('image/') ? `<img src="/uploads/${f.saved_filename}" class="img-preview">` : ''}
+                        </div>
+                        <a href="/uploads/${f.saved_filename}" class="btn" download="${escapeHtml(f.filename)}">📥 Download</a>
+                    </div>
+                `).join('');
+        }
+
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024, sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+        }
+
         function filterLogs() {
             const query = document.getElementById('search-input').value.toLowerCase();
             const container = document.getElementById('logs-container');
@@ -276,6 +303,7 @@ DASHBOARD_HTML = """
                         <div class="log-title">
                             <span class="method-badge ${getBadgeClass(item.method)}">${item.method}</span>
                             <span>${escapeHtml(item.path)}</span>
+                            ${item.files && item.files.length ? '<span style="color: #58a6ff; font-size: 11px;">📁 ' + item.files.length + ' file(s)</span>' : ''}
                         </div>
                         <div class="log-meta">${item.timestamp} | ${item.client_ip}</div>
                     </div>
@@ -289,7 +317,7 @@ DASHBOARD_HTML = """
                         <div class="section-sub">Body</div>
                         <pre>${escapeHtml(item.body || (item.form_data ? JSON.stringify(item.form_data, null, 2) : '<empty>'))}</pre>
 
-                        ${item.files && item.files.length ? `<div class="section-sub">Files</div><pre>${JSON.stringify(item.files, null, 2)}</pre>` : ''}
+                        ${renderFiles(item.files)}
                     </div>
                 </div>
             `).join('');
