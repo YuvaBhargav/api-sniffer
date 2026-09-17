@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  api-sniffer:
+    build: .
+    container_name: api_sniffer
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+      - "8501:8501"
+    environment:
+      - API_PORT=5000
+      - PORT=8501
+    volumes:
+      - ./uploads:/app/uploads
+      - ./sniffer_logs.db:/app/sniffer_logs.db

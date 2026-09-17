@@ -1,0 +1,24 @@
+# Database & Local Uploads
+sniffer_logs.db
+sniffer_logs.db-wal
+sniffer_logs.db-shm
+uploads/*
+!uploads/.gitkeep
+
+# Python bytecode & environments
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+env/
+
+# Streamlit local settings & cache
+.streamlit/
+
+# OS / IDE metadata
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
