@@ -43,6 +43,14 @@ def init_db():
             duration_ms REAL DEFAULT 0.0
         );
     """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS raw_uploaded_files (
+            file_id TEXT PRIMARY KEY,
+            filename TEXT NOT NULL,
+            content_type TEXT NOT NULL,
+            file_bytes BLOB NOT NULL
+        );
+    """)
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_timestamp ON request_logs(timestamp);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_method ON request_logs(method);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_path ON request_logs(path);")
@@ -184,5 +192,29 @@ def export_logs_csv() -> str:
             writer.writerow(list(row))
     conn.close()
     return output.getvalue()
+
+def insert_raw_file(file_id: str, filename: str, content_type: str, file_bytes: bytes):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT OR REPLACE INTO raw_uploaded_files (file_id, filename, content_type, file_bytes)
+        VALUES (?, ?, ?, ?)
+    """, (file_id, filename, content_type, file_bytes))
+    conn.commit()
+    conn.close()
+
+def get_raw_file(file_id: str) -> Optional[Dict[str, Any]]:
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT filename, content_type, file_bytes FROM raw_uploaded_files WHERE file_id = ?", (file_id,))
+    row = cursor.fetchone()
+    conn.close()
+    if row:
+        return {
+            "filename": row["filename"],
+            "content_type": row["content_type"],
+            "file_bytes": row["file_bytes"]
+        }
+    return None
 
 init_db()

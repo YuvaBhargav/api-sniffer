@@ -637,6 +637,16 @@ def export_csv():
     response.headers["Content-Disposition"] = f"attachment; filename=api_logs_{datetime.now(IST).strftime('%Y%m%d_%H%M%S')}_IST.csv"
     return response
 
+@flask_app.route("/file/<file_id>/<filename>", methods=["GET"])
+def serve_raw_file(file_id, filename):
+    file_rec = db.get_raw_file(file_id)
+    if not file_rec:
+        return "File not found", 404
+    response = make_response(file_rec["file_bytes"])
+    response.headers["Content-Type"] = file_rec["content_type"]
+    response.headers["Content-Disposition"] = f"inline; filename=\"{filename}\""
+    return response
+
 @flask_app.route("/healthz", methods=["GET"])
 def health_check():
     return jsonify({
@@ -679,7 +689,9 @@ def catch_all(subpath=""):
     form_data_raw = request.form.to_dict(flat=False)
     form_data_clean = {k: v[0] if len(v) == 1 else v for k, v in form_data_raw.items()}
 
+    # RAW UN-ENCODED FILE STORAGE: Served directly via /file/<file_id>/<filename>
     files_info = []
+    base_host = request.host_url.rstrip("/")
     for file_key, file_obj in request.files.items():
         if file_obj and file_obj.filename:
             orig_filename = secure_filename(file_obj.filename)
@@ -688,32 +700,20 @@ def catch_all(subpath=""):
             md5_hash = hashlib.md5(file_bytes).hexdigest()
             content_type = file_obj.content_type or "application/octet-stream"
 
-            # External Object Storage Upload (Catbox.moe - Raw Un-encoded Public Object Storage)
-            storage_url = None
-            try:
-                cat_res = requests.post(
-                    "https://catbox.moe/user/api.php",
-                    data={"reqtype": "fileupload"},
-                    files={"fileToUpload": (orig_filename, file_bytes, content_type)},
-                    timeout=5
-                )
-                if cat_res.status_code == 200 and cat_res.text.strip().startswith("http"):
-                    storage_url = cat_res.text.strip()
-            except Exception:
-                storage_url = None
+            file_id = str(uuid.uuid4())
+            db.insert_raw_file(file_id, orig_filename, content_type, file_bytes)
 
-            # Base64 fallback Data URI if external storage offline
-            b64_str = base64.b64encode(file_bytes).decode("utf-8")
-            data_uri = storage_url or f"data:{content_type};base64,{b64_str}"
+            file_url = f"{base_host}/file/{file_id}/{orig_filename}"
 
             is_text = False
             try:
                 plain_content = file_bytes.decode("utf-8")
                 is_text = True
             except UnicodeDecodeError:
-                plain_content = f"<binary file: {file_size} bytes, md5: {md5_hash}>"
+                plain_content = f"<binary raw file: {file_size} bytes, md5: {md5_hash}>"
 
             files_info.append({
+                "file_id": file_id,
                 "field": file_key,
                 "filename": orig_filename,
                 "size_bytes": file_size,
@@ -721,8 +721,7 @@ def catch_all(subpath=""):
                 "content_type": content_type,
                 "is_text": is_text,
                 "plain_content": plain_content,
-                "storage_url": storage_url,
-                "data_uri": data_uri
+                "file_url": file_url
             })
 
     raw_data = request.get_data()
