@@ -3,8 +3,6 @@ import sys
 import time
 import json
 import uuid
-import hashlib
-import base64
 import threading
 from datetime import datetime, timezone, timedelta
 from werkzeug.utils import secure_filename
@@ -485,27 +483,16 @@ DASHBOARD_HTML = """
             return `<div class="section-sub">📁 Uploaded Files (${files.length})</div>` +
                 files.map(f => {
                     const pageUrl = f.tmpfiles_url || '';
-                    const previewUrl = f.data_uri || f.download_url || '';
-                    const isImg = (f.content_type && f.content_type.startsWith('image/')) ||
-                                  /\\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i.test(f.filename);
 
                     return `
-                    <div class="file-box" style="flex-direction: column; align-items: flex-start;">
+                    <div class="file-box" style="flex-direction: column; align-items: flex-start; gap: 6px;">
                         <div style="width: 100%; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
                             <div>
                                 <strong>📄 ${escapeHtml(f.filename)}</strong>
-                                <small style="color:#8b949e">(${formatBytes(f.size_bytes)} | MD5: ${f.md5})</small>
-                                ${pageUrl ? `<br><small style="color:#58a6ff">🌐 tmpfiles.org Evidence URL: <a href="${escapeHtml(pageUrl)}" target="_blank" style="color:#58a6ff; text-decoration: underline;">${escapeHtml(pageUrl)}</a></small><br><small style="color:#e3b341">⏱️ Temporary Storage (Expires in 60 minutes on tmpfiles.org)</small>` : ''}
+                                <small style="color:#8b949e">(${formatBytes(f.size_bytes)})</small>
                             </div>
-                            <a href="${escapeHtml(pageUrl || previewUrl)}" class="btn" target="_blank" download="${escapeHtml(f.filename)}" style="background:#1f6feb; color:#fff; border:none;">📥 View / Download File</a>
+                            ${pageUrl ? `<a href="${escapeHtml(pageUrl)}" target="_blank" style="color:#58a6ff; font-weight: 600; text-decoration: underline; word-break: break-all;">${escapeHtml(pageUrl)}</a>` : '<small style="color:#f85149">Upload failed</small>'}
                         </div>
-                        
-                        ${isImg && previewUrl ? `
-                        <div style="margin-top: 8px; width: 100%;">
-                            <small style="color:#8b949e">Image Preview:</small>
-                            <img src="${escapeHtml(previewUrl)}" class="img-preview" alt="${escapeHtml(f.filename)}">
-                        </div>
-                        ` : ''}
                     </div>
                 `}).join('');
         }
@@ -694,25 +681,19 @@ def catch_all(subpath=""):
             orig_filename = secure_filename(file_obj.filename)
             file_bytes = file_obj.read()
             file_size = len(file_bytes)
-            md5_hash = hashlib.md5(file_bytes).hexdigest()
             content_type = file_obj.content_type or "application/octet-stream"
 
-            b64_str = base64.b64encode(file_bytes).decode("utf-8")
-            data_uri = f"data:{content_type};base64,{b64_str}"
-
             tmpfiles_page_url = None
-            tmpfiles_dl_url = None
             try:
                 upload_res = requests.post(
                     "https://tmpfiles.org/api/v1/upload",
                     files={"file": (orig_filename, file_bytes, content_type)},
-                    timeout=5
+                    timeout=10
                 )
                 if upload_res.status_code == 200:
                     json_data = upload_res.json()
                     if json_data.get("status") == "success" and "data" in json_data:
                         tmpfiles_page_url = json_data["data"]["url"]
-                        tmpfiles_dl_url = tmpfiles_page_url.replace("tmpfiles.org/", "tmpfiles.org/dl/")
             except Exception:
                 pass
 
@@ -720,11 +701,8 @@ def catch_all(subpath=""):
                 "field": file_key,
                 "filename": orig_filename,
                 "size_bytes": file_size,
-                "md5": md5_hash,
                 "content_type": content_type,
-                "data_uri": data_uri,
-                "tmpfiles_url": tmpfiles_page_url,
-                "download_url": tmpfiles_dl_url or data_uri
+                "tmpfiles_url": tmpfiles_page_url
             })
 
     raw_data = request.get_data()
