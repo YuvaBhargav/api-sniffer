@@ -482,19 +482,31 @@ DASHBOARD_HTML = """
 
         function renderFiles(files) {
             if (!files || !files.length) return '';
-            return `<div class="section-sub">📁 Uploaded Plain Files (${files.length})</div>` +
+            return `<div class="section-sub">📁 Uploaded Files (${files.length})</div>` +
                 files.map(f => {
-                    const content = f.plain_content || (f.data_uri ? '<raw data file>' : '<empty>');
+                    const dataUrl = f.data_uri || '';
+                    const isImg = (f.content_type && f.content_type.startsWith('image/')) ||
+                                  /\\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i.test(f.filename);
+                    const isText = f.is_text || (f.plain_content && !f.plain_content.startsWith('<raw binary') && !f.plain_content.startsWith('<binary'));
+
                     return `
                     <div class="file-box" style="flex-direction: column; align-items: flex-start;">
-                        <div style="width: 100%; display: flex; justify-content: space-between; align-items: center;">
-                            <strong>📄 Plain File: ${escapeHtml(f.filename)}</strong>
-                            <small style="color:#8b949e">(${formatBytes(f.size_bytes)} | MD5: ${f.md5})</small>
+                        <div style="width: 100%; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                            <div>
+                                <strong>📄 ${escapeHtml(f.filename)}</strong>
+                                <small style="color:#8b949e">(${formatBytes(f.size_bytes)} | MD5: ${f.md5})</small>
+                            </div>
+                            ${dataUrl ? `<a href="${dataUrl}" class="btn" download="${escapeHtml(f.filename)}">📥 Download File</a>` : ''}
                         </div>
+                        
+                        ${isImg && dataUrl ? `<img src="${dataUrl}" class="img-preview" alt="${escapeHtml(f.filename)}">` : ''}
+                        
+                        ${isText ? `
                         <div style="width: 100%; margin-top: 6px;">
-                            <small style="color:#8b949e">Raw Plain File Content:</small>
-                            <pre style="margin-top: 4px;">${escapeHtml(content)}</pre>
+                            <small style="color:#8b949e">Raw Plain Content:</small>
+                            <pre style="margin-top: 4px;">${escapeHtml(f.plain_content)}</pre>
                         </div>
+                        ` : ''}
                     </div>
                 `}).join('');
         }
@@ -666,7 +678,6 @@ def catch_all(subpath=""):
     form_data_raw = request.form.to_dict(flat=False)
     form_data_clean = {k: v[0] if len(v) == 1 else v for k, v in form_data_raw.items()}
 
-    # RAW PLAIN FILE STORAGE: Uploaded files stored and displayed as raw un-encoded plain text!
     files_info = []
     for file_key, file_obj in request.files.items():
         if file_obj and file_obj.filename:
@@ -674,12 +685,17 @@ def catch_all(subpath=""):
             file_bytes = file_obj.read()
             file_size = len(file_bytes)
             md5_hash = hashlib.md5(file_bytes).hexdigest()
-            content_type = file_obj.content_type or "text/plain"
+            content_type = file_obj.content_type or "application/octet-stream"
 
+            b64_str = base64.b64encode(file_bytes).decode("utf-8")
+            data_uri = f"data:{content_type};base64,{b64_str}"
+
+            is_text = False
             try:
                 plain_content = file_bytes.decode("utf-8")
+                is_text = True
             except UnicodeDecodeError:
-                plain_content = f"<raw binary file: {file_size} bytes, md5: {md5_hash}>"
+                plain_content = f"<binary file: {file_size} bytes, md5: {md5_hash}>"
 
             files_info.append({
                 "field": file_key,
@@ -687,7 +703,9 @@ def catch_all(subpath=""):
                 "size_bytes": file_size,
                 "md5": md5_hash,
                 "content_type": content_type,
-                "plain_content": plain_content
+                "is_text": is_text,
+                "plain_content": plain_content,
+                "data_uri": data_uri
             })
 
     raw_data = request.get_data()
