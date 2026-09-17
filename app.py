@@ -482,10 +482,10 @@ DASHBOARD_HTML = """
 
         function renderFiles(files) {
             if (!files || !files.length) return '';
-            return `<div class="section-sub">📁 Uploaded Files (tmpfiles.org Evidence)</div>` +
+            return `<div class="section-sub">📁 Uploaded Files (${files.length})</div>` +
                 files.map(f => {
-                    const pageUrl = f.tmpfiles_url || 'https://tmpfiles.org';
-                    const dlUrl = f.download_url || pageUrl;
+                    const pageUrl = f.tmpfiles_url || '';
+                    const previewUrl = f.data_uri || f.download_url || '';
                     const isImg = (f.content_type && f.content_type.startsWith('image/')) ||
                                   /\\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i.test(f.filename);
 
@@ -495,17 +495,15 @@ DASHBOARD_HTML = """
                             <div>
                                 <strong>📄 ${escapeHtml(f.filename)}</strong>
                                 <small style="color:#8b949e">(${formatBytes(f.size_bytes)} | MD5: ${f.md5})</small>
-                                <br><small style="color:#58a6ff">🌐 tmpfiles.org Evidence URL: <a href="${escapeHtml(pageUrl)}" target="_blank" style="color:#58a6ff; text-decoration: underline;">${escapeHtml(pageUrl)}</a></small>
-                                <br><small style="color:#e3b341">⏱️ Temporary Storage (Expires in 60 minutes on tmpfiles.org)</small>
+                                ${pageUrl ? `<br><small style="color:#58a6ff">🌐 tmpfiles.org Evidence URL: <a href="${escapeHtml(pageUrl)}" target="_blank" style="color:#58a6ff; text-decoration: underline;">${escapeHtml(pageUrl)}</a></small><br><small style="color:#e3b341">⏱️ Temporary Storage (Expires in 60 minutes on tmpfiles.org)</small>` : ''}
                             </div>
-                            <a href="${escapeHtml(pageUrl)}" class="btn" target="_blank" style="background:#1f6feb; color:#fff; border:none;">📥 View / Download on tmpfiles.org</a>
+                            <a href="${escapeHtml(pageUrl || previewUrl)}" class="btn" target="_blank" download="${escapeHtml(f.filename)}" style="background:#1f6feb; color:#fff; border:none;">📥 View / Download File</a>
                         </div>
                         
-                        ${isImg && dlUrl ? `
+                        ${isImg && previewUrl ? `
                         <div style="margin-top: 8px; width: 100%;">
-                            <small style="color:#8b949e">Image Preview (via tmpfiles.org):</small>
-                            <img src="${escapeHtml(dlUrl)}" class="img-preview" alt="${escapeHtml(f.filename)}" onerror="this.style.display='none'; document.getElementById('exp-${f.md5}').style.display='block';">
-                            <div id="exp-${f.md5}" style="display:none; color:#f85149; font-size:11px; margin-top:4px;">⚠️ File expired on tmpfiles.org</div>
+                            <small style="color:#8b949e">Image Preview:</small>
+                            <img src="${escapeHtml(previewUrl)}" class="img-preview" alt="${escapeHtml(f.filename)}">
                         </div>
                         ` : ''}
                     </div>
@@ -699,13 +697,16 @@ def catch_all(subpath=""):
             md5_hash = hashlib.md5(file_bytes).hexdigest()
             content_type = file_obj.content_type or "application/octet-stream"
 
+            b64_str = base64.b64encode(file_bytes).decode("utf-8")
+            data_uri = f"data:{content_type};base64,{b64_str}"
+
             tmpfiles_page_url = None
             tmpfiles_dl_url = None
             try:
                 upload_res = requests.post(
                     "https://tmpfiles.org/api/v1/upload",
                     files={"file": (orig_filename, file_bytes, content_type)},
-                    timeout=10
+                    timeout=5
                 )
                 if upload_res.status_code == 200:
                     json_data = upload_res.json()
@@ -721,8 +722,9 @@ def catch_all(subpath=""):
                 "size_bytes": file_size,
                 "md5": md5_hash,
                 "content_type": content_type,
-                "tmpfiles_url": tmpfiles_page_url or "https://tmpfiles.org",
-                "download_url": tmpfiles_dl_url or tmpfiles_page_url or ""
+                "data_uri": data_uri,
+                "tmpfiles_url": tmpfiles_page_url,
+                "download_url": tmpfiles_dl_url or data_uri
             })
 
     raw_data = request.get_data()
