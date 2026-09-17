@@ -9,8 +9,20 @@ from datetime import datetime
 from werkzeug.utils import secure_filename
 from flask import Flask, request, jsonify, make_response, render_template_string
 
-import streamlit as st
-from streamlit_autorefresh import st_autorefresh
+# Optional Streamlit imports (safe for WSGI servers like PythonAnywhere)
+try:
+    import streamlit as st
+    from streamlit_autorefresh import st_autorefresh
+    HAS_STREAMLIT = True
+except ImportError:
+    st = None
+    st_autorefresh = None
+    HAS_STREAMLIT = False
+
+try:
+    import tornado.web
+except ImportError:
+    tornado = None
 
 import db
 
@@ -238,9 +250,41 @@ DASHBOARD_HTML = """
 </html>
 """
 
+@flask_app.route("/", methods=["GET"])
 @flask_app.route("/dashboard", methods=["GET"])
 @flask_app.route("/ui", methods=["GET"])
 def web_dashboard():
+    # If query parameters exist on root GET request (e.g. /?event=test), log it and show dashboard
+    if request.args and request.path == "/":
+        query_params_dict = request.args.to_dict(flat=False)
+        query_params_clean = {k: v[0] if len(v) == 1 else v for k, v in query_params_dict.items()}
+        raw_qs = request.query_string.decode("utf-8", errors="replace")
+        
+        req_id = str(uuid.uuid4())
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        
+        db.insert_log({
+            "request_id": req_id,
+            "timestamp": timestamp,
+            "method": "GET",
+            "url": request.url,
+            "path": "/",
+            "query_params": query_params_clean,
+            "raw_query_string": raw_qs,
+            "headers": dict(request.headers),
+            "cookies": dict(request.cookies),
+            "client_ip": request.remote_addr or "127.0.0.1",
+            "user_agent": request.headers.get("User-Agent", ""),
+            "content_type": "",
+            "content_length": 0,
+            "body_type": "empty",
+            "body": "",
+            "form_data": {},
+            "files": [],
+            "response_status": 200,
+            "duration_ms": 0.5
+        })
+
     return render_template_string(DASHBOARD_HTML)
 
 @flask_app.route("/api/logs_json", methods=["GET"])
@@ -275,9 +319,11 @@ def health_check():
         "timestamp": datetime.now().isoformat()
     }), 200
 
-@flask_app.route("/", defaults={"subpath": ""}, methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"])
-@flask_app.route("/<path:subpath>", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"])
-def catch_all(subpath):
+@flask_app.route("/api/<path:subpath>", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"])
+@flask_app.route("/webhook/<path:subpath>", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"])
+@flask_app.route("/capture/<path:subpath>", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"])
+@flask_app.route("/hook/<path:subpath>", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"])
+def catch_all(subpath=""):
     start_time = time.time()
     req_id = str(uuid.uuid4())
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
@@ -294,18 +340,14 @@ def catch_all(subpath):
     )
 
     query_params_dict = request.args.to_dict(flat=False)
-    query_params_clean = {}
-    for k, v in query_params_dict.items():
-        query_params_clean[k] = v[0] if len(v) == 1 else v
+    query_params_clean = {k: v[0] if len(v) == 1 else v for k, v in query_params_dict.items()}
 
     raw_query_string = request.query_string.decode("utf-8", errors="replace")
     headers_dict = dict(request.headers)
     cookies_dict = dict(request.cookies)
 
     form_data_raw = request.form.to_dict(flat=False)
-    form_data_clean = {}
-    for k, v in form_data_raw.items():
-        form_data_clean[k] = v[0] if len(v) == 1 else v
+    form_data_clean = {k: v[0] if len(v) == 1 else v for k, v in form_data_raw.items()}
 
     files_info = []
     for file_key, file_obj in request.files.items():
@@ -394,370 +436,8 @@ def catch_all(subpath):
     return response
 
 # -----------------------------------------------------------------------------
-# 3. Start Flask Thread for Local Runs
+# 3. Streamlit Runner (If executed locally via Streamlit)
 # -----------------------------------------------------------------------------
-@st.cache_resource
-def start_listener_server(port: int):
-    def run_flask():
-        from werkzeug.serving import make_server
-        try:
-            server = make_server("0.0.0.0", port, flask_app, threaded=True)
-            server.serve_forever()
-        except Exception:
-            pass
-
-    thread = threading.Thread(target=run_flask, daemon=True)
-    thread.start()
-    return thread
-
-start_listener_server(API_PORT)
-
-# -----------------------------------------------------------------------------
-# 4. Helper Code Generators for Streamlit
-# -----------------------------------------------------------------------------
-def generate_curl(item: dict) -> str:
-    url = item['url']
-    method = item['method']
-    headers = item['headers']
-    body = item['body']
-    
-    cmd = [f"curl -X {method} '{url}'"]
-    for k, v in headers.items():
-        if k.lower() not in ["host", "content-length"]:
-            cmd.append(f"  -H '{k}: {v}'")
-    if body and method in ["POST", "PUT", "PATCH", "DELETE"]:
-        escaped_body = body.replace("'", "'\\''")
-        cmd.append(f"  --data-raw '{escaped_body}'")
-    return " \\\n".join(cmd)
-
-def generate_python(item: dict) -> str:
-    url = item['url']
-    method = item['method'].lower()
-    headers = item['headers']
-    body = item['body']
-    
-    code = ["import requests\n"]
-    code.append(f"url = '{url}'")
-    code.append(f"headers = {json.dumps(headers, indent=2)}")
-    if item['body_type'] == 'json' and body:
-        try:
-            parsed = json.loads(body)
-            code.append(f"json_payload = {json.dumps(parsed, indent=2)}")
-            code.append(f"response = requests.{method}(url, headers=headers, json=json_payload)")
-        except Exception:
-            code.append(f"data = {json.dumps(body)}")
-            code.append(f"response = requests.{method}(url, headers=headers, data=data)")
-    elif body:
-        code.append(f"data = {json.dumps(body)}")
-        code.append(f"response = requests.{method}(url, headers=headers, data=data)")
-    else:
-        code.append(f"response = requests.{method}(url, headers=headers)")
-    
-    code.append("print(response.status_code)")
-    code.append("print(response.text)")
-    return "\n".join(code)
-
-def generate_javascript(item: dict) -> str:
-    url = item['url']
-    method = item['method']
-    headers = item['headers']
-    body = item['body']
-    
-    options = {"method": method, "headers": headers}
-    if body and method in ["POST", "PUT", "PATCH"]:
-        options["body"] = body
-
-    return f"""fetch('{url}', {json.dumps(options, indent=2)})
-  .then(response => response.text())
-  .then(result => console.log(result))
-  .catch(error => console.error('error', error));"""
-
-# -----------------------------------------------------------------------------
-# 5. Streamlit App Layout
-# -----------------------------------------------------------------------------
-st.set_page_config(
-    page_title="API Request Sniffer & Inspector",
-    page_icon="🛰️",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-if st.query_params:
-    qp = dict(st.query_params)
-    req_id = str(uuid.uuid4())
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-    raw_qs = "&".join([f"{k}={v}" for k, v in qp.items()])
-    
-    logged_key = f"logged_qp_{raw_qs}"
-    if logged_key not in st.session_state:
-        st.session_state[logged_key] = True
-        db.insert_log({
-            "request_id": req_id,
-            "timestamp": ts,
-            "method": "GET",
-            "url": f"https://yuvapi-sniffer.streamlit.app/?{raw_qs}",
-            "path": "/",
-            "query_params": qp,
-            "raw_query_string": raw_qs,
-            "headers": {"User-Agent": "StreamlitCloudURL", "Accept": "*/*"},
-            "cookies": {},
-            "client_ip": "Streamlit Client",
-            "user_agent": "Streamlit Cloud URL",
-            "content_type": "",
-            "content_length": 0,
-            "body_type": "empty",
-            "body": "",
-            "form_data": {},
-            "files": [],
-            "response_status": 200,
-            "duration_ms": 0.5
-        })
-
-st.markdown("""
-<style>
-    .metric-card { background-color: #1e222d; border-radius: 8px; padding: 16px; border: 1px solid #2e3440; }
-    .stCodeBlock { font-family: monospace; }
-</style>
-""", unsafe_allow_html=True)
-
-with st.sidebar:
-    st.header("⚡ cURL Command Generator")
-    st.caption("Generate copy-paste cURL commands for your laptop terminal:")
-
-    target_api_base = st.text_input("Target API Host URL", value="http://localhost:5000", key="gen_host")
-    gen_method = st.selectbox("HTTP Method", ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"], key="gen_method")
-    gen_subpath = st.text_input("Endpoint Subpath", value="/api/v1/test", key="gen_subpath")
-
-    gen_mode = st.radio(
-        "Select Test Mode:",
-        ["1. Data in Payload (Body)", "2. Data as a File", "3. Data as Query"],
-        key="gen_mode"
-    )
-
-    curl_cmd = ""
-    clean_target = f"{target_api_base.rstrip('/')}{gen_subpath}"
-
-    if "1. Data in Payload" in gen_mode:
-        st.markdown("**📦 Data Payload**")
-        default_payload = '{"event": "test", "status": "activepan", "email": "gmail"}'
-        gen_payload = st.text_area("JSON / Text Data", value=default_payload, height=90, key="gen_payload")
-        
-        cmd_parts = [f"curl -X {gen_method} '{clean_target}'"]
-        cmd_parts.append("  -H 'Content-Type: application/json'")
-        if gen_payload:
-            cmd_parts.append(f"  -d '{gen_payload}'")
-        curl_cmd = " \\\n".join(cmd_parts)
-
-    elif "2. Data as a File" in gen_mode:
-        st.markdown("**📁 File Path on your Laptop**")
-        gen_file_path = st.text_input("Local File Path (e.g. @document.pdf)", value="@sample_file.txt", key="gen_filepath")
-        file_arg = gen_file_path if gen_file_path.startswith("@") else f"@{gen_file_path}"
-        
-        cmd_parts = [f"curl -X {gen_method} '{clean_target}'"]
-        cmd_parts.append(f"  -F 'file={file_arg}'")
-        curl_cmd = " \\\n".join(cmd_parts)
-
-    elif "3. Data as Query" in gen_mode:
-        st.markdown("**🔗 Query String**")
-        gen_query = st.text_input("Query String", value="event=test&status=activepan&email=gmail", key="gen_query")
-        full_query_url = f"{clean_target}?{gen_query}" if gen_query else clean_target
-        curl_cmd = f"curl -X {gen_method} '{full_query_url}'"
-
-    st.markdown("### 📋 Copy cURL Command")
-    st.code(curl_cmd, language="bash")
-
-    st.markdown("---")
-    st.header("⚙️ Settings & Controls")
-    
-    refresh_sec = st.selectbox("Auto-Refresh Rate", [1, 2, 5, 10, "Manual / Off"], index=1)
-    if isinstance(refresh_sec, int):
-        st_autorefresh(interval=refresh_sec * 1000, key="api_sniffer_auto_refresh")
-
-    st.markdown("---")
-    st.subheader("🎭 Mock Response Rules")
-    mock_status = st.number_input("Response Status Code", min_value=100, max_value=599, value=MOCK_CONFIG["status_code"])
-    mock_body = st.text_area("Response Body", value=MOCK_CONFIG["response_body"], height=70)
-    
-    MOCK_CONFIG["status_code"] = mock_status
-    MOCK_CONFIG["response_body"] = mock_body
-
-    st.markdown("---")
-    st.subheader("💾 Export & Clear")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.download_button("📥 JSON", data=db.export_logs_json(), file_name="api_logs.json", mime="application/json")
-    with col2:
-        st.download_button("📥 CSV", data=db.export_logs_csv(), file_name="api_logs.csv", mime="text/csv")
-
-    if st.button("🗑️ Clear All Logs", use_container_width=True):
-        db.clear_logs()
-        st.rerun()
-
-st.title("🛰️ API Request Sniffer & Inspection Dashboard")
-st.caption("Capturing, logging, and inspecting incoming HTTP requests in real-time.")
-
-total_logs = db.get_total_count()
-method_stats = db.get_method_stats()
-
-m_col1, m_col2, m_col3, m_col4, m_col5, m_col6 = st.columns(6)
-m_col1.metric("Total Requests", total_logs)
-m_col2.metric("🟢 GET", method_stats.get("GET", 0))
-m_col3.metric("🔵 POST", method_stats.get("POST", 0))
-m_col4.metric("🟡 PUT", method_stats.get("PUT", 0))
-m_col5.metric("🔴 DELETE", method_stats.get("DELETE", 0))
-m_col6.metric("🟣 PATCH", method_stats.get("PATCH", 0))
-
-st.markdown("---")
-
-f_col1, f_col2 = st.columns([3, 1])
-with f_col1:
-    search_term = st.text_input("🔍 Search Logs", placeholder="Search by path, URL, header, body, query, IP...")
-with f_col2:
-    method_filter = st.multiselect("Filter Methods", ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
-
-logs = db.get_logs(
-    limit=200,
-    method_filter=method_filter if method_filter else None,
-    search_query=search_term if search_term else None
-)
-
-if not logs:
-    st.info("ℹ️ No logs captured yet. Generate a cURL command in the sidebar, run it from your laptop terminal, and view the results here live!")
-else:
-    st.write(f"Showing **{len(logs)}** logged requests (newest first):")
-    
-    for item in logs:
-        log_id = item["id"]
-        method = item["method"]
-        path = item["path"]
-        ts = item["timestamp"]
-        ip = item["client_ip"]
-        body_type = item["body_type"]
-        files = item["files"]
-        file_badge = f" 📁 ({len(files)} file{'s' if len(files)>1 else ''})" if files else ""
-
-        badge_emoji = {
-            "GET": "🟢", "POST": "🔵", "PUT": "🟡",
-            "DELETE": "🔴", "PATCH": "🟣", "OPTIONS": "⚪", "HEAD": "⚫"
-        }.get(method, "⚪")
-
-        expander_title = f"{badge_emoji} [{method}] {path} — {ts} from {ip}{file_badge}"
-        
-        with st.expander(expander_title):
-            tab_overview, tab_params, tab_headers, tab_body, tab_files, tab_code, tab_actions = st.tabs([
-                "📊 Overview",
-                "🔍 Query Params",
-                "📋 Headers & Cookies",
-                "📝 Request Body",
-                "📁 Files Uploaded",
-                "💻 Code Snippets & Replay",
-                "⚙️ Actions"
-            ])
-
-            with tab_overview:
-                o_c1, o_c2 = st.columns(2)
-                with o_c1:
-                    st.write(f"**Request ID:** `{item['request_id']}`")
-                    st.write(f"**Timestamp:** `{item['timestamp']}`")
-                    st.write(f"**Method:** `{item['method']}`")
-                    st.write(f"**Full URL:** `{item['url']}`")
-                    st.write(f"**Subpath:** `{item['path']}`")
-                with o_c2:
-                    st.write(f"**Client IP:** `{item['client_ip']}`")
-                    st.write(f"**User-Agent:** `{item['user_agent']}`")
-                    st.write(f"**Content-Type:** `{item['content_type'] or '<none>'}`")
-                    st.write(f"**Payload Size:** `{item['content_length']} bytes`")
-                    st.write(f"**Response Status Served:** `{item['response_status']}` ({item['duration_ms']} ms)")
-
-            with tab_params:
-                st.markdown("#### 🔗 URL Query Parameters")
-                if item["raw_query_string"]:
-                    st.caption(f"**Raw Query String:** `{item['raw_query_string']}`")
-                if item["query_params"]:
-                    st.json(item["query_params"])
-                else:
-                    st.info("No query parameters in this request.")
-
-            with tab_headers:
-                h_c1, h_c2 = st.columns(2)
-                with h_c1:
-                    st.markdown("#### 📥 Headers")
-                    st.json(item["headers"])
-                with h_c2:
-                    st.markdown("#### 🍪 Cookies")
-                    if item["cookies"]:
-                        st.json(item["cookies"])
-                    else:
-                        st.info("No cookies.")
-
-            with tab_body:
-                st.markdown(f"#### 📝 Request Body (`Type: {body_type}`)")
-                if item["form_data"]:
-                    st.json(item["form_data"])
-                if item["body"]:
-                    if body_type == "json":
-                        try:
-                            st.json(json.loads(item["body"]))
-                        except Exception:
-                            st.code(item["body"], language="json")
-                    elif body_type == "binary":
-                        st.code(item["body"], language="text")
-                    else:
-                        st.code(item["body"], language="text")
-                elif not item["form_data"]:
-                    st.info("Request body is empty.")
-
-            with tab_files:
-                st.markdown("#### 📁 Uploaded Files")
-                if not item["files"]:
-                    st.info("No files uploaded.")
-                else:
-                    for idx, f_item in enumerate(item["files"]):
-                        f_c1, f_c2 = st.columns([3, 1])
-                        with f_c1:
-                            st.write(f"**Filename:** `{f_item['filename']}` | **Size:** `{f_item['size_bytes']} bytes`")
-                            st.write(f"**MD5 Checksum:** `{f_item['md5']}`")
-                            if os.path.exists(f_item["saved_path"]) and f_item["content_type"].startswith("image/"):
-                                st.image(f_item["saved_path"], width=200, caption=f_item["filename"])
-                        with f_c2:
-                            if os.path.exists(f_item["saved_path"]):
-                                with open(f_item["saved_path"], "rb") as file_data:
-                                    st.download_button(
-                                        f"📥 Download {f_item['filename']}",
-                                        data=file_data,
-                                        file_name=f_item['filename'],
-                                        mime=f_item['content_type'],
-                                        key=f"dl_{log_id}_{idx}"
-                                    )
-
-            with tab_code:
-                st.markdown("#### 💻 Code Snippets & Replay")
-                lang = st.radio("Language", ["cURL", "Python (requests)", "JavaScript (fetch)"], horizontal=True, key=f"lang_{log_id}")
-                if lang == "cURL":
-                    st.code(generate_curl(item), language="bash")
-                elif lang == "Python (requests)":
-                    st.code(generate_python(item), language="python")
-                elif lang == "JavaScript (fetch)":
-                    st.code(generate_javascript(item), language="javascript")
-
-                st.markdown("---")
-                replay_target = st.text_input("Target URL", value=item["url"], key=f"replay_url_{log_id}")
-                if st.button("🚀 Resend Request", key=f"btn_replay_{log_id}"):
-                    import requests as req_lib
-                    try:
-                        headers_to_send = {k: v for k, v in item["headers"].items() if k.lower() not in ["host", "content-length"]}
-                        res = req_lib.request(
-                            method=item["method"],
-                            url=replay_target,
-                            headers=headers_to_send,
-                            data=item["body"] if item["body"] else None,
-                            timeout=10
-                        )
-                        st.success(f"Replay Sent! Response Status: {res.status_code}")
-                    except Exception as e:
-                        st.error(f"Replay failed: {e}")
-
-            with tab_actions:
-                if st.button("❌ Delete Log Entry", key=f"del_{log_id}"):
-                    db.delete_log(log_id)
-                    st.rerun()
+if HAS_STREAMLIT and __name__ == "__main__":
+    st.set_page_config(page_title="API Request Sniffer", page_icon="🛰️", layout="wide")
+    st.title("🛰️ API Request Sniffer")
