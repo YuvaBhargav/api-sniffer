@@ -242,7 +242,7 @@ def generate_javascript(item: dict) -> str:
   .catch(error => console.error('error', error));"""
 
 # -----------------------------------------------------------------------------
-# 5. Streamlit App Layout & 3-Way Tester
+# 5. Streamlit App Layout & cURL Command Generator Studio
 # -----------------------------------------------------------------------------
 st.set_page_config(
     page_title="API Request Sniffer & Inspector",
@@ -292,105 +292,63 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# Sidebar: 3-Way API Tester Studio
+# Sidebar: cURL Command Generator Studio
 # -----------------------------------------------------------------------------
 with st.sidebar:
-    st.header("🧪 3-Way Request Tester")
-    st.caption("Test any HTTP method in 3 simple ways:")
+    st.header("⚡ cURL Command Generator")
+    st.caption("Generate copy-paste cURL commands to run from your laptop terminal:")
 
-    # 1. Select HTTP Method & Path
-    test_method = st.selectbox("HTTP Method", ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"], key="t_method")
-    test_path = st.text_input("Endpoint Path", value="/api/v1/test", key="t_path")
+    # 1. Target URL Config
+    target_api_base = st.text_input("Target API Host URL", value="http://localhost:5000", key="gen_host")
+    gen_method = st.selectbox("HTTP Method", ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"], key="gen_method")
+    gen_subpath = st.text_input("Endpoint Subpath", value="/api/v1/test", key="gen_subpath")
 
-    # 2. Select 1 of 3 Test Modes
-    test_mode = st.radio(
-        "Select Data Mode:",
+    # 2. Select 1 of 3 Test Ways
+    gen_mode = st.radio(
+        "Select Test Mode:",
         ["1. Data in Payload (Body)", "2. Data as a File", "3. Data as Query"],
-        key="t_mode"
+        key="gen_mode"
     )
 
-    req_body = ""
-    req_query = ""
-    uploaded_files_data = []
+    curl_cmd = ""
+    clean_target = f"{target_api_base.rstrip('/')}{gen_subpath}"
 
-    if "1. Data in Payload" in test_mode:
+    if "1. Data in Payload" in gen_mode:
         st.markdown("**📦 Data Payload**")
-        default_payload = '{\n  "event": "test",\n  "status": "activepan",\n  "email": "gmail"\n}'
-        req_body = st.text_area("JSON / Text Payload", value=default_payload, height=120, key="t_body")
-
-    elif "2. Data as a File" in test_mode:
-        st.markdown("**📁 Data File Upload**")
-        uploaded_file = st.file_uploader("Upload File (Image, TXT, PDF, CSV, JSON)", key="t_file")
-        if uploaded_file is not None:
-            file_bytes = uploaded_file.getvalue()
-            orig_name = secure_filename(uploaded_file.name)
-            saved_name = f"{int(time.time())}_{uuid.uuid4().hex[:6]}_{orig_name}"
-            saved_path = os.path.join(UPLOAD_DIR, saved_name)
-            with open(saved_path, "wb") as f_out:
-                f_out.write(file_bytes)
-            
-            md5_str = hashlib.md5(file_bytes).hexdigest()
-            uploaded_files_data.append({
-                "field": "file",
-                "filename": orig_name,
-                "saved_filename": saved_name,
-                "saved_path": saved_path,
-                "size_bytes": len(file_bytes),
-                "md5": md5_str,
-                "content_type": uploaded_file.type or "application/octet-stream"
-            })
-            st.success(f"File loaded: {orig_name} ({len(file_bytes)} bytes)")
-
-    elif "3. Data as Query" in test_mode:
-        st.markdown("**🔗 Data Query String**")
-        req_query = st.text_input("Query String", value="event=test&status=activepan&email=gmail", key="t_query")
-
-    # 3. Fire Test Request
-    if st.button("🚀 Fire & Log Request", type="primary", use_container_width=True):
-        req_id = str(uuid.uuid4())
-        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        default_payload = '{"event": "test", "status": "activepan", "email": "gmail"}'
+        gen_payload = st.text_area("JSON / Text Data", value=default_payload, height=90, key="gen_payload")
         
-        parsed_params = {}
-        if req_query:
-            from urllib.parse import parse_qs
-            parsed_params = {k: v[0] if len(v) == 1 else v for k, v in parse_qs(req_query).items()}
+        # Build cURL for Payload
+        cmd_parts = [f"curl -X {gen_method} '{clean_target}'"]
+        cmd_parts.append("  -H 'Content-Type: application/json'")
+        if gen_payload:
+            cmd_parts.append(f"  -d '{gen_payload}'")
+        curl_cmd = " \\\n".join(cmd_parts)
 
-        body_type = "empty"
-        if req_body:
-            body_type = "json" if req_body.strip().startswith("{") or req_body.strip().startswith("[") else "text"
-        elif uploaded_files_data:
-            body_type = "multipart"
+    elif "2. Data as a File" in gen_mode:
+        st.markdown("**📁 File Path on your Laptop**")
+        gen_file_path = st.text_input("Local File Path (e.g. @document.pdf)", value="@sample_file.txt", key="gen_filepath")
+        
+        file_arg = gen_file_path if gen_file_path.startswith("@") else f"@{gen_file_path}"
+        
+        # Build cURL for File Upload
+        cmd_parts = [f"curl -X {gen_method} '{clean_target}'"]
+        cmd_parts.append(f"  -F 'file={file_arg}'")
+        curl_cmd = " \\\n".join(cmd_parts)
 
-        full_url = f"http://127.0.0.1:{API_PORT}{test_path}?{req_query}" if req_query else f"http://127.0.0.1:{API_PORT}{test_path}"
+    elif "3. Data as Query" in gen_mode:
+        st.markdown("**🔗 Query String**")
+        gen_query = st.text_input("Query String", value="event=test&status=activepan&email=gmail", key="gen_query")
+        
+        full_query_url = f"{clean_target}?{gen_query}" if gen_query else clean_target
+        
+        # Build cURL for Query
+        curl_cmd = f"curl -X {gen_method} '{full_query_url}'"
 
-        headers = {
-            "User-Agent": "3WayTesterStudio/1.0",
-            "Content-Type": "multipart/form-data" if uploaded_files_data else ("application/json" if body_type == "json" else "text/plain")
-        }
-
-        db.insert_log({
-            "request_id": req_id,
-            "timestamp": ts,
-            "method": test_method,
-            "url": full_url,
-            "path": test_path,
-            "query_params": parsed_params,
-            "raw_query_string": req_query,
-            "headers": headers,
-            "cookies": {},
-            "client_ip": "127.0.0.1 (Tester Studio)",
-            "user_agent": "3WayTesterStudio/1.0",
-            "content_type": headers["Content-Type"],
-            "content_length": len(req_body) if req_body else (uploaded_files_data[0]["size_bytes"] if uploaded_files_data else 0),
-            "body_type": body_type,
-            "body": req_body,
-            "form_data": {},
-            "files": uploaded_files_data,
-            "response_status": MOCK_CONFIG["status_code"],
-            "duration_ms": 0.9
-        })
-        st.success("✅ Request Fired & Logged!")
-        st.rerun()
+    # Display Generated cURL with 1-Click Copy
+    st.markdown("### 📋 Copy cURL Command")
+    st.code(curl_cmd, language="bash")
+    st.caption("Copy this command, paste it into CMD/Terminal on your laptop, and press Enter!")
 
     st.markdown("---")
     st.header("⚙️ Settings & Controls")
@@ -452,7 +410,7 @@ logs = db.get_logs(
 )
 
 if not logs:
-    st.info("ℹ️ No logs captured yet. Select a method and test mode in the sidebar **3-Way Request Tester** to fire your first request!")
+    st.info("ℹ️ No logs captured yet. Generate a cURL command in the sidebar, run it from your laptop terminal, and view the results here live!")
 else:
     st.write(f"Showing **{len(logs)}** logged requests (newest first):")
     
