@@ -484,7 +484,7 @@ DASHBOARD_HTML = """
             if (!files || !files.length) return '';
             return `<div class="section-sub">📁 Uploaded Files (${files.length})</div>` +
                 files.map(f => {
-                    const dataUrl = f.data_uri || '';
+                    const dataUrl = f.storage_url || f.data_uri || '';
                     const isImg = (f.content_type && f.content_type.startsWith('image/')) ||
                                   /\\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i.test(f.filename);
                     const isText = f.is_text || (f.plain_content && !f.plain_content.startsWith('<raw binary') && !f.plain_content.startsWith('<binary'));
@@ -495,8 +495,9 @@ DASHBOARD_HTML = """
                             <div>
                                 <strong>📄 ${escapeHtml(f.filename)}</strong>
                                 <small style="color:#8b949e">(${formatBytes(f.size_bytes)} | MD5: ${f.md5})</small>
+                                ${f.storage_url ? `<br><small style="color:#58a6ff">🌐 Object Storage: <a href="${f.storage_url}" target="_blank" style="color:#58a6ff;">${f.storage_url}</a></small>` : ''}
                             </div>
-                            ${dataUrl ? `<a href="${dataUrl}" class="btn" download="${escapeHtml(f.filename)}">📥 Download File</a>` : ''}
+                            ${dataUrl ? `<a href="${dataUrl}" class="btn" target="_blank" download="${escapeHtml(f.filename)}">📥 Download / View File</a>` : ''}
                         </div>
                         
                         ${isImg && dataUrl ? `<img src="${dataUrl}" class="img-preview" alt="${escapeHtml(f.filename)}">` : ''}
@@ -687,8 +688,23 @@ def catch_all(subpath=""):
             md5_hash = hashlib.md5(file_bytes).hexdigest()
             content_type = file_obj.content_type or "application/octet-stream"
 
+            # External Object Storage Upload (Catbox.moe - Raw Un-encoded Public Object Storage)
+            storage_url = None
+            try:
+                cat_res = requests.post(
+                    "https://catbox.moe/user/api.php",
+                    data={"reqtype": "fileupload"},
+                    files={"fileToUpload": (orig_filename, file_bytes, content_type)},
+                    timeout=5
+                )
+                if cat_res.status_code == 200 and cat_res.text.strip().startswith("http"):
+                    storage_url = cat_res.text.strip()
+            except Exception:
+                storage_url = None
+
+            # Base64 fallback Data URI if external storage offline
             b64_str = base64.b64encode(file_bytes).decode("utf-8")
-            data_uri = f"data:{content_type};base64,{b64_str}"
+            data_uri = storage_url or f"data:{content_type};base64,{b64_str}"
 
             is_text = False
             try:
@@ -705,6 +721,7 @@ def catch_all(subpath=""):
                 "content_type": content_type,
                 "is_text": is_text,
                 "plain_content": plain_content,
+                "storage_url": storage_url,
                 "data_uri": data_uri
             })
 
