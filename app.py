@@ -482,12 +482,12 @@ DASHBOARD_HTML = """
 
         function renderFiles(files) {
             if (!files || !files.length) return '';
-            return `<div class="section-sub">📁 Uploaded Files (${files.length})</div>` +
+            return `<div class="section-sub">📁 Uploaded Files (tmpfiles.org Evidence)</div>` +
                 files.map(f => {
-                    const dataUrl = f.storage_url || f.data_uri || '';
+                    const pageUrl = f.tmpfiles_url || 'https://tmpfiles.org';
+                    const dlUrl = f.download_url || pageUrl;
                     const isImg = (f.content_type && f.content_type.startsWith('image/')) ||
                                   /\\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i.test(f.filename);
-                    const isText = f.is_text || (f.plain_content && !f.plain_content.startsWith('<raw binary') && !f.plain_content.startsWith('<binary'));
 
                     return `
                     <div class="file-box" style="flex-direction: column; align-items: flex-start;">
@@ -495,17 +495,17 @@ DASHBOARD_HTML = """
                             <div>
                                 <strong>📄 ${escapeHtml(f.filename)}</strong>
                                 <small style="color:#8b949e">(${formatBytes(f.size_bytes)} | MD5: ${f.md5})</small>
-                                ${f.storage_url ? `<br><small style="color:#58a6ff">🌐 Object Storage: <a href="${f.storage_url}" target="_blank" style="color:#58a6ff;">${f.storage_url}</a></small>` : ''}
+                                <br><small style="color:#58a6ff">🌐 tmpfiles.org Evidence URL: <a href="${escapeHtml(pageUrl)}" target="_blank" style="color:#58a6ff; text-decoration: underline;">${escapeHtml(pageUrl)}</a></small>
+                                <br><small style="color:#e3b341">⏱️ Temporary Storage (Expires in 60 minutes on tmpfiles.org)</small>
                             </div>
-                            ${dataUrl ? `<a href="${dataUrl}" class="btn" target="_blank" download="${escapeHtml(f.filename)}">📥 Download / View File</a>` : ''}
+                            <a href="${escapeHtml(pageUrl)}" class="btn" target="_blank" style="background:#1f6feb; color:#fff; border:none;">📥 View / Download on tmpfiles.org</a>
                         </div>
                         
-                        ${isImg && dataUrl ? `<img src="${dataUrl}" class="img-preview" alt="${escapeHtml(f.filename)}">` : ''}
-                        
-                        ${isText ? `
-                        <div style="width: 100%; margin-top: 6px;">
-                            <small style="color:#8b949e">Raw Plain Content:</small>
-                            <pre style="margin-top: 4px;">${escapeHtml(f.plain_content)}</pre>
+                        ${isImg && dlUrl ? `
+                        <div style="margin-top: 8px; width: 100%;">
+                            <small style="color:#8b949e">Image Preview (via tmpfiles.org):</small>
+                            <img src="${escapeHtml(dlUrl)}" class="img-preview" alt="${escapeHtml(f.filename)}" onerror="this.style.display='none'; document.getElementById('exp-${f.md5}').style.display='block';">
+                            <div id="exp-${f.md5}" style="display:none; color:#f85149; font-size:11px; margin-top:4px;">⚠️ File expired on tmpfiles.org</div>
                         </div>
                         ` : ''}
                     </div>
@@ -689,9 +689,8 @@ def catch_all(subpath=""):
     form_data_raw = request.form.to_dict(flat=False)
     form_data_clean = {k: v[0] if len(v) == 1 else v for k, v in form_data_raw.items()}
 
-    # RAW UN-ENCODED FILE STORAGE: Served directly via /file/<file_id>/<filename>
+    # TEMPORARY EXTERNAL FILE STORAGE (tmpfiles.org): 0 bytes stored on PythonAnywhere disk or DB!
     files_info = []
-    base_host = request.host_url.rstrip("/")
     for file_key, file_obj in request.files.items():
         if file_obj and file_obj.filename:
             orig_filename = secure_filename(file_obj.filename)
@@ -700,28 +699,30 @@ def catch_all(subpath=""):
             md5_hash = hashlib.md5(file_bytes).hexdigest()
             content_type = file_obj.content_type or "application/octet-stream"
 
-            file_id = str(uuid.uuid4())
-            db.insert_raw_file(file_id, orig_filename, content_type, file_bytes)
-
-            file_url = f"{base_host}/file/{file_id}/{orig_filename}"
-
-            is_text = False
+            tmpfiles_page_url = None
+            tmpfiles_dl_url = None
             try:
-                plain_content = file_bytes.decode("utf-8")
-                is_text = True
-            except UnicodeDecodeError:
-                plain_content = f"<binary raw file: {file_size} bytes, md5: {md5_hash}>"
+                upload_res = requests.post(
+                    "https://tmpfiles.org/api/v1/upload",
+                    files={"file": (orig_filename, file_bytes, content_type)},
+                    timeout=10
+                )
+                if upload_res.status_code == 200:
+                    json_data = upload_res.json()
+                    if json_data.get("status") == "success" and "data" in json_data:
+                        tmpfiles_page_url = json_data["data"]["url"]
+                        tmpfiles_dl_url = tmpfiles_page_url.replace("tmpfiles.org/", "tmpfiles.org/dl/")
+            except Exception:
+                pass
 
             files_info.append({
-                "file_id": file_id,
                 "field": file_key,
                 "filename": orig_filename,
                 "size_bytes": file_size,
                 "md5": md5_hash,
                 "content_type": content_type,
-                "is_text": is_text,
-                "plain_content": plain_content,
-                "file_url": file_url
+                "tmpfiles_url": tmpfiles_page_url or "https://tmpfiles.org",
+                "download_url": tmpfiles_dl_url or tmpfiles_page_url or ""
             })
 
     raw_data = request.get_data()
