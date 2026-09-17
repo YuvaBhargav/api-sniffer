@@ -233,7 +233,7 @@ DASHBOARD_HTML = """
         document.getElementById('gen-host').value = window.location.origin;
 
         function updateCurl() {
-            const host = document.getElementById('gen-host').value.replace(/\/$/, '');
+            const host = document.getElementById('gen-host').value.replace(new RegExp('/$'), '');
             const method = document.getElementById('gen-method').value;
             const subpath = document.getElementById('gen-subpath').value;
             const mode = document.getElementById('gen-mode').value;
@@ -278,7 +278,7 @@ DASHBOARD_HTML = """
                 if (mode === 'payload') {
                     py += `payload = ${document.getElementById('gen-payload').value}\nresponse = requests.${method.toLowerCase()}(url, json=payload)`;
                 } else if (mode === 'text') {
-                    py += `data = """${document.getElementById('gen-text').value}"""\nheaders = {"Content-Type": "text/plain"}\nresponse = requests.${method.toLowerCase()}(url, data=data, headers=headers)`;
+                    py += `data = ` + JSON.stringify(document.getElementById('gen-text').value) + `\nheaders = {"Content-Type": "text/plain"}\nresponse = requests.${method.toLowerCase()}(url, data=data, headers=headers)`;
                 } else if (mode === 'file') {
                     let filepath = document.getElementById('gen-file').value.replace(/^@/, '');
                     py += `files = {'file': open('${filepath}', 'rb')}\nresponse = requests.${method.toLowerCase()}(url, files=files)`;
@@ -322,7 +322,7 @@ DASHBOARD_HTML = """
         }
 
         async function sendTestRequest() {
-            const host = document.getElementById('gen-host').value.replace(/\/$/, '');
+            const host = document.getElementById('gen-host').value.replace(new RegExp('/$'), '');
             const method = document.getElementById('gen-method').value;
             const subpath = document.getElementById('gen-subpath').value;
             const mode = document.getElementById('gen-mode').value;
