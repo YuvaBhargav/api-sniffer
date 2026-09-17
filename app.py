@@ -692,13 +692,22 @@ def catch_all(subpath=""):
             md5_hash = hashlib.md5(file_bytes).hexdigest()
             content_type = file_obj.content_type or "application/octet-stream"
 
+            # PythonAnywhere Proxy support for whitelisted tmpfiles.org
+            pa_proxies = None
+            if os.environ.get("HTTP_PROXY") or os.environ.get("HTTPS_PROXY") or os.environ.get("PYTHONANYWHERE_SITE"):
+                pa_proxies = {
+                    "http": os.environ.get("HTTP_PROXY", "http://proxy.server:3128"),
+                    "https": os.environ.get("HTTPS_PROXY", "http://proxy.server:3128"),
+                }
+
             tmpfiles_page_url = None
             try:
                 upload_res = requests.post(
                     "https://tmpfiles.org/api/v1/upload",
                     files={"file": (orig_filename, file_bytes, content_type)},
                     headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
-                    timeout=5
+                    proxies=pa_proxies,
+                    timeout=10
                 )
                 if upload_res.status_code == 200:
                     json_data = upload_res.json()
